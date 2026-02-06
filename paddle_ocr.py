@@ -88,9 +88,9 @@ class PaddleOCRProcessor:
             ]
             return docker_cmd
         else:
-            # Local execution execution
+            # Local execution execution, using full path to conda env executable
             return [
-                "paddleocr",
+                "/home/adam1972/miniconda3/envs/paddle/bin/paddleocr",
                 "--image_dir", str(file_path),
                 "--use_angle_cls", "true",
                 "--lang", "en",
