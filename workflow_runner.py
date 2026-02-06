@@ -22,6 +22,11 @@ class WorkflowOrchestrator:
         
     def process_file(self, file_path: Path):
         """Run the full pipeline on a single file."""
+        # Smart Path Resolution
+        # If path is relative, assume it is inside the configured INPUT_DIR
+        if not file_path.is_absolute():
+            file_path = config.INPUT_DIR / file_path
+
         if not file_path.exists():
             logger.error(f"File not found: {file_path}")
             return
