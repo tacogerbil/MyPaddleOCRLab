@@ -1,0 +1,9 @@
+# Exclude Data Input Folder
+conversion/*
+!conversion/.gitkeep
+
+# Python Cleanups
+__pycache__/
+*.pyc
+.env
+.DS_Store
