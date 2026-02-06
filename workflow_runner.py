@@ -2,9 +2,9 @@ import logging
 import argparse
 from pathlib import Path
 from typing import List
-from .config import config
-from .paddle_ocr import PaddleOCRProcessor, OCRExecutionError
-from .llm_cleanup import LLMCorrector, LLMConnectionError
+from config import config
+from paddle_ocr import PaddleOCRProcessor, OCRExecutionError
+from llm_cleanup import LLMCorrector, LLMConnectionError
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

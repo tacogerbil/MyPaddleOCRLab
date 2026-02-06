@@ -3,7 +3,7 @@ import logging
 import json
 from enum import Enum
 from typing import Optional, Dict, Any
-from .config import config
+from config import config
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

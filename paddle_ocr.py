@@ -3,7 +3,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from .config import config
+from config import config
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
