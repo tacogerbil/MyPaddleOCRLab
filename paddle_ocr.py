@@ -54,7 +54,7 @@ class PaddleOCRProcessor:
                     use_angle_cls=config.USE_ANGLE_CLS,
                     lang=config.LANG,
                     use_gpu=config.USE_GPU,
-                    show_log=config.SHOW_LOG,
+                    # show_log removed as it causes ValueError in V3
                     enable_mkldnn=True # Optimistic CPU opt
                 )
                 logger.info("PaddleOCR Engine initialized successfully (Legacy Mode).")
@@ -74,8 +74,8 @@ class PaddleOCRProcessor:
                 cls._engine_instance = PaddleOCR(
                     use_angle_cls=config.USE_ANGLE_CLS,
                     lang=config.LANG,
-                    device=device_arg,
-                    show_log=config.SHOW_LOG
+                    device=device_arg
+                    # show_log removed as it causes ValueError in V3
                     # Removed enable_mkldnn as might not be supported in pipeline
                 )
                 logger.info("PaddleOCR Engine initialized successfully (Modern Mode).")
