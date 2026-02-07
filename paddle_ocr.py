@@ -54,7 +54,12 @@ class PaddleOCRProcessor:
                 cls._engine_instance = PaddleOCR(
                     use_angle_cls=config.USE_ANGLE_CLS,
                     lang=config.LANG,
-                    device=device_arg
+                    device=device_arg,
+                    # Disable preprocessing models that cause cuDNN initialization errors
+                    # These are optional document correction features
+                    use_doc_orientation_classify=False,
+                    use_doc_unwarping=False,
+                    use_textline_orientation=False
                 )
                 logger.info("PaddleOCR Engine initialized successfully.")
             except Exception as e:
