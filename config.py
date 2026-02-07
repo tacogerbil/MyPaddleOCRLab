@@ -64,8 +64,8 @@ class Config:
 
     @property
     def LANG(self) -> str:
-        """Language code for OCR (default 'en')."""
-        return os.getenv("LANG", "en")
+        """Language code for OCR (Force 'en' to avoid locale errors)."""
+        return "en"
 
     @property
     def SHOW_LOG(self) -> bool:
