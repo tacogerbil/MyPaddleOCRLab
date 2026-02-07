@@ -56,10 +56,8 @@ class PaddleOCRProcessor:
                     lang=config.LANG,
                     device=device_arg,
                     # Disable preprocessing models that cause cuDNN initialization errors
-                    # These are optional document correction features
                     use_doc_orientation_classify=False,
-                    use_doc_unwarping=False,
-                    use_textline_orientation=False
+                    use_doc_unwarping=False
                 )
                 logger.info("PaddleOCR Engine initialized successfully.")
             except Exception as e:
