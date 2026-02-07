@@ -1,8 +1,13 @@
-import subprocess
-import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
+# We import PaddleOCR inside the class or method to avoid hard dependency if library is missing during development/mocking
+# But for production code, it should be at top level.
+try:
+    from paddleocr import PaddleOCR
+except ImportError:
+    PaddleOCR = None
+
 from config import config
 
 # Setup logging
@@ -15,115 +20,133 @@ class OCRExecutionError(Exception):
 
 class PaddleOCRProcessor:
     """
-    Adapter class for PaddleOCR.
+    Adapter class for PaddleOCR (Python Library Version).
     Responsible for executing the OCR engine on a given image/PDF and returning the result.
+    
+    Implements Singleton pattern for the heavy model loading.
     """
+    _engine_instance = None
 
     def __init__(self):
-        """Initialize the processor using the global config."""
+        """Initialize the processor (Lazy loads the model)."""
         self.output_dir = config.OUTPUT_DIR
-        self.is_docker = config.IS_DOCKER
-        self.docker_image = config.PADDLE_DOCKER_IMAGE
+        self._ensure_engine_loaded()
+
+    @classmethod
+    def _ensure_engine_loaded(cls):
+        """Singleton loader for PaddleOCR engine to avoid re-init costs."""
+        if cls._engine_instance is None:
+            if PaddleOCR is None:
+                raise ImportError("paddleocr library not installed. Please install specific paddleocr version.")
+            
+            logger.info(f"Initializing PaddleOCR Engine (GPU={config.USE_GPU}, AngleCls={config.USE_ANGLE_CLS}, Lang={config.LANG})...")
+            try:
+                cls._engine_instance = PaddleOCR(
+                    use_angle_cls=config.USE_ANGLE_CLS,
+                    lang=config.LANG,
+                    use_gpu=config.USE_GPU,
+                    show_log=config.SHOW_LOG,
+                    enable_mkldnn=True # CPU optimization if GPU fails
+                )
+                logger.info("PaddleOCR Engine initialized successfully.")
+            except Exception as e:
+                raise OCRExecutionError(f"Failed to initialize PaddleOCR engine: {e}") from e
 
     def process_document(self, file_path: Path) -> Dict[str, Any]:
         """
-        Run PaddleOCR on the specified file.
+        Run PaddleOCR on the specified file using the loaded python library.
 
         Args:
             file_path (Path): Absolute path to the input image or PDF.
 
         Returns:
-            Dict[str, Any]: The raw structured output from the OCR engine.
+            Dict[str, Any]: The structured output.
         
         Raises:
-            OCRExecutionError: If the external command fails or output is invalid.
+            OCRExecutionError: If execution fails.
         """
         if not file_path.exists():
             raise FileNotFoundError(f"Input file not found: {file_path}")
 
         logger.info(f"Processing file: {file_path}")
         
-        # Construct command
-        command = self._build_command(file_path)
-        logger.debug(f"Executing command: {' '.join(command)}")
-
         try:
-            # Run the command
-            result = subprocess.run(
-                command, 
-                capture_output=True, 
-                text=True, 
-                check=False # We check return code manually for better error messages
-            )
+            # Run OCR
+            # result structure: [[[[x1,y1],[x2,y2]..], ("text", score)], ...]
+            # For multiple pages (PDF), it returns a list of lists.
+            results = self._engine_instance.ocr(str(file_path), cls=config.USE_ANGLE_CLS)
+            
+            if not results:
+                logger.warning(f"No text detected in {file_path}")
+                return {"source_file": str(file_path), "raw_text_content": ""}
 
-            if result.returncode != 0:
-                logger.error(f"OCR execution failed: {result.stderr}")
-                raise OCRExecutionError(f"PaddleOCR command failed with code {result.returncode}: {result.stderr}")
-
-            # For now, we assume standard PaddleOCR CLI structure.
-            # Real execution output parsing depends heavily on the specific paddleocr version/flags.
-            # This is a baseline implementation.
+            # Parse and normalize
+            parsed_text = self._parse_library_output(results)
+            
             logger.info("OCR execution successful.")
-            return self._parse_output(result.stdout, file_path)
+            return {
+                "source_file": str(file_path),
+                "raw_text_content": parsed_text,
+                "raw_data": results # Keep raw data for debugging/advanced usage if needed
+            }
 
         except Exception as e:
             logger.exception("Unexpected error during OCR processing")
             raise OCRExecutionError(f"Failed to process {file_path}: {str(e)}") from e
 
-    def _build_command(self, file_path: Path) -> List[str]:
-        """Construct the subprocess command based on config."""
-        if self.is_docker:
-            # Docker execution logic (simplified)
-            # This requires binding volumes, which complicates things. 
-            # For this initial MCCC pass, we will sketch the Docker command but rely on local for the user's specific request.
-            input_dir_mount = file_path.parent
-            docker_cmd = [
-                "docker", "run", "--rm",
-                "-v", f"{input_dir_mount}:/data",
-                self.docker_image,
-                "paddleocr", "--image_dir", f"/data/{file_path.name}",
-                "--use_angle_cls", "true",
-                "--lang", "en",
-                "--use_gpu", "false" # Default to false for compatibility, user can tune
-            ]
-            return docker_cmd
-        else:
-            # Local execution execution, using full path to conda env executable
-            return [
-                "/home/adam1972/miniconda3/envs/paddle/bin/paddleocr",
-                "--image_dir", str(file_path),
-                "--use_angle_cls", "true",
-                "--lang", "en",
-                "--use_gpu", "false" 
-            ]
-
-    def _parse_output(self, raw_output: str, source_file: Path) -> Dict[str, Any]:
+    def _parse_library_output(self, raw_results: Union[List, Any]) -> str:
         """
-        Parse the raw CLI stdout from PaddleOCR.
-        
-        Note: PaddleOCR CLI prints results line by line. 
-        We capture this and wrap it in a structured dictionary.
+        Convert PaddleOCR's complex list structure into a single string.
+        Handles both List[List] (Single Image) and List[List[List]] (PDF pages).
         """
-        # Save raw output for debugging
-        raw_output_path = self.output_dir / f"{source_file.stem}_raw.txt"
-        with open(raw_output_path, "w", encoding="utf-8") as f:
-            f.write(raw_output)
+        text_lines = []
         
-        logger.info(f"Raw output saved to {raw_output_path}")
+        # Flatten logic: Paddle output varies by version/input type
+        # Robust iteration:
+        if raw_results is None:
+            return ""
+            
+        # If it's a list containing None (happens on empty pages sometimes)
+        if isinstance(raw_results, list) and len(raw_results) > 0:
+            if raw_results[0] is None:
+                return ""
 
-        # Basic parsing (can be enhanced to parse actual JSON if --output_json is used)
-        return {
-            "source_file": str(source_file),
-            "raw_text_content": raw_output
-        }
+        # Recursive/Iterative text extraction
+        # Standard result: [ [ [[coords], ("text", score)] ... ] ]
+        
+        try:
+            for page_result in raw_results:
+                if not page_result: 
+                    continue
+                # page_result might be the line itself if single image? 
+                # PaddleOCR API is consistent: result is list of lines.
+                # If PDF, it might be list of pages, where each page is list of lines.
+                
+                # Check depth
+                if isinstance(page_result, list) and len(page_result) > 0 and isinstance(page_result[0], list) and isinstance(page_result[0][0], list):
+                     # It's a page containing lines
+                     for line in page_result:
+                         if line and len(line) >= 2:
+                             text, score = line[1]
+                             text_lines.append(text)
+                elif isinstance(page_result, list) and len(page_result) >= 2:
+                    # It's a single line: [coords, (text, score)]
+                    text, score = page_result[1]
+                    text_lines.append(text)
+        
+        except Exception as e:
+            logger.error(f"Error parsing PaddleOCR output structure: {e}")
+            # Fallback string conversion for debugging
+            return str(raw_results)
+
+        return "\n".join(text_lines)
 
 if __name__ == "__main__":
     # Internal Manual Test
-    # This block allows running this specific file to test it in isolation
     try:
         config.validate()
+        print("Initializing PaddleOCR...")
         processor = PaddleOCRProcessor()
-        print("PaddleOCRProcessor initialized. Ready to process.")
-        # To test: processor.process_document(Path("path/to/test.pdf"))
+        print("PaddleOCRProcessor initialized via Library. Ready to process.")
     except Exception as e:
         print(f"Initialization failed: {e}")

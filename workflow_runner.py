@@ -20,37 +20,49 @@ class WorkflowOrchestrator:
         self.ocr_processor = PaddleOCRProcessor()
         self.llm_corrector = LLMCorrector()
         
-    def process_file(self, file_path: Path):
+    def process_file(self, file_path: Path, to_stdout: bool = False):
         """Run the full pipeline on a single file."""
         # Smart Path Resolution
-        # If path is relative, assume it is inside the configured INPUT_DIR
+        # If not absolute, try leveraging INPUT_DIR or just assume it's relative to CWD
         if not file_path.is_absolute():
-            file_path = config.INPUT_DIR / file_path
-
+            # If default logic, try relative to input dir. If user passed CLI path, assume CWD relative.
+            # But here we handle both:
+            possible_path = config.INPUT_DIR / file_path
+            if possible_path.exists():
+                file_path = possible_path
+            # Else assume CWD relative (already covers file_path itself)
+        
         if not file_path.exists():
             logger.error(f"File not found: {file_path}")
             return
 
         try:
             # 1. OCR Step
-            logger.info(f"Step 1: Running OCR on {file_path.name}...")
+            if not to_stdout:
+                logger.info(f"Step 1: Running OCR on {file_path.name}...")
+            
             ocr_result = self.ocr_processor.process_document(file_path)
             raw_text = ocr_result.get("raw_text_content", "")
             
             if not raw_text.strip():
-                logger.warning("OCR returned empty text. Skipping LLM cleanup.")
+                if not to_stdout:
+                    logger.warning("OCR returned empty text. Skipping LLM cleanup.")
                 return
 
             # 2. LLM Step
-            logger.info(f"Step 2: Cleaning text with LLM...")
+            if not to_stdout:
+                logger.info(f"Step 2: Cleaning text with LLM...")
+            
             cleaned_text = self.llm_corrector.cleanup_text(raw_text)
             
-            # 3. Save Result
-            output_file = config.CLEANED_DIR / f"{file_path.stem}_cleaned.txt"
-            with open(output_file, "w", encoding="utf-8") as f:
-                f.write(cleaned_text)
-            
-            logger.info(f"Success! Cleaned text saved to: {output_file}")
+            # 3. Output
+            if to_stdout:
+                print(cleaned_text)
+            else:
+                output_file = config.CLEANED_DIR / f"{file_path.stem}_cleaned.txt"
+                with open(output_file, "w", encoding="utf-8") as f:
+                    f.write(cleaned_text)
+                logger.info(f"Success! Cleaned text saved to: {output_file}")
 
         except (OCRExecutionError, LLMConnectionError) as e:
             logger.error(f"Workflow failed for {file_path.name}: {e}")
@@ -73,13 +85,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Manual OCR + LLM Workflow Runner")
     parser.add_argument("--file", type=Path, help="Specific file to process")
     parser.add_argument("--batch", action="store_true", help="Process all files in INPUT_DIR")
+    parser.add_argument("--stdout", action="store_true", help="Print cleaned text to stdout (for n8n)")
     
     args = parser.parse_args()
     
     orchestrator = WorkflowOrchestrator()
     
     if args.file:
-        orchestrator.process_file(args.file)
+        orchestrator.process_file(args.file, to_stdout=args.stdout)
     elif args.batch:
         orchestrator.run_batch(config.INPUT_DIR)
     else:

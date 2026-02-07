@@ -52,6 +52,26 @@ class Config:
         """Name of the PaddleOCR docker image to run."""
         return os.getenv("PADDLE_DOCKER_IMAGE", "paddlepaddle/paddleocr:latest")
 
+    @property
+    def USE_GPU(self) -> bool:
+        """Enable GPU acceleration for PaddleOCR."""
+        return os.getenv("USE_GPU", "true").lower() == "true"
+
+    @property
+    def USE_ANGLE_CLS(self) -> bool:
+        """Enable angle classifier for document rotation."""
+        return os.getenv("USE_ANGLE_CLS", "true").lower() == "true"
+
+    @property
+    def LANG(self) -> str:
+        """Language code for OCR (default 'en')."""
+        return os.getenv("LANG", "en")
+
+    @property
+    def SHOW_LOG(self) -> bool:
+        """Show internal PaddleOCR logs."""
+        return os.getenv("SHOW_LOG", "false").lower() == "true"
+
     def validate(self):
         """Ensure all critical paths exist."""
         self.INPUT_DIR.mkdir(parents=True, exist_ok=True)
