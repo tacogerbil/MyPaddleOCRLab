@@ -5,6 +5,8 @@ from typing import List
 from config import config
 from paddle_ocr import PaddleOCRProcessor, OCRExecutionError
 from llm_cleanup import LLMCorrector, LLMConnectionError
+import os
+os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
