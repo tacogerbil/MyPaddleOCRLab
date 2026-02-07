@@ -46,43 +46,19 @@ class PaddleOCRProcessor:
             
             logger.info(f"Initializing PaddleOCR Engine (GPU={config.USE_GPU}, AngleCls={config.USE_ANGLE_CLS}, Lang={config.LANG})...")
             
-            # Initialization Strategy: Try Legacy Params first, fallback to Modern (V3/PaddleX)
             try:
-                # Attempt 1: Legacy (v2.x) - use_gpu=True/False
-                logger.info("Attempting initialization with legacy params (use_gpu)...")
-                cls._engine_instance = PaddleOCR(
-                    use_angle_cls=config.USE_ANGLE_CLS,
-                    lang=config.LANG,
-                    use_gpu=config.USE_GPU,
-                    # show_log removed as it causes ValueError in V3
-                    enable_mkldnn=True # Optimistic CPU opt
-                )
-                logger.info("PaddleOCR Engine initialized successfully (Legacy Mode).")
-                return
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Legacy initialization failed: {e}. Retrying with modern parameters...")
-            
-            try:
-                # Attempt 2: Modern (v3.x/PaddleX Pipeline) - device='gpu'/'cpu'
+                # PaddleOCR 3.x initialization with modern parameters
                 device_arg = "gpu" if config.USE_GPU else "cpu"
-                # Some versions require 'gpu:0'
-                if config.USE_GPU and "PADDLE_VISIBLE_DEVICES" in os.environ:
-                     # Respect CUDA environment if set, otherwise default
-                     pass
                 
-                logger.info(f"Attempting initialization with modern params (device={device_arg})...")
+                logger.info(f"Initializing with device={device_arg}...")
                 cls._engine_instance = PaddleOCR(
                     use_angle_cls=config.USE_ANGLE_CLS,
                     lang=config.LANG,
                     device=device_arg
-                    # show_log removed as it causes ValueError in V3
-                    # Removed enable_mkldnn as might not be supported in pipeline
                 )
-                logger.info("PaddleOCR Engine initialized successfully (Modern Mode).")
-                return
+                logger.info("PaddleOCR Engine initialized successfully.")
             except Exception as e:
-                # Critical Failure
-                raise OCRExecutionError(f"Failed to initialize PaddleOCR engine with all known parameter sets: {e}") from e
+                raise OCRExecutionError(f"Failed to initialize PaddleOCR engine: {e}") from e
 
     def process_document(self, file_path: Path) -> Dict[str, Any]:
         """
