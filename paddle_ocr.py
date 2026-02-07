@@ -106,7 +106,9 @@ class PaddleOCRProcessor:
             # Run OCR
             # result structure: [[[[x1,y1],[x2,y2]..], ("text", score)], ...]
             # For multiple pages (PDF), it returns a list of lists.
-            results = self._engine_instance.ocr(str(file_path), cls=config.USE_ANGLE_CLS)
+            # Note: cls parameter removed as it's not supported in PaddleOCR 3.0
+            # Angle classification is controlled during initialization via use_angle_cls
+            results = self._engine_instance.ocr(str(file_path))
             
             if not results:
                 logger.warning(f"No text detected in {file_path}")
