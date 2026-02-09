@@ -51,8 +51,15 @@ class WorkflowOrchestrator:
             ocr_result = self.ocr_processor.process_document(file_path)
             raw_text = ocr_result.get("raw_text_content", "")
             
+            # Debug: Show what OCR returned
+            if to_stdout:
+                print(f"DEBUG: OCR returned {len(raw_text)} characters")
+                print(f"DEBUG: First 100 chars: {raw_text[:100]}")
+            
             if not raw_text.strip():
-                if not to_stdout:
+                if to_stdout:
+                    print("ERROR: OCR returned empty text. No text detected in image.")
+                else:
                     logger.warning("OCR returned empty text. Skipping LLM cleanup.")
                 return
 
