@@ -42,6 +42,11 @@ class WorkflowOrchestrator:
             # 1. OCR Step
             if not to_stdout:
                 logger.info(f"Step 1: Running OCR on {file_path.name}...")
+            else:
+                # Debug output for n8n
+                print(f"DEBUG: Processing file path: {file_path}")
+                print(f"DEBUG: File exists: {file_path.exists()}")
+                print(f"DEBUG: Absolute path: {file_path.absolute()}")
             
             ocr_result = self.ocr_processor.process_document(file_path)
             raw_text = ocr_result.get("raw_text_content", "")
