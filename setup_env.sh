@@ -3,16 +3,13 @@
 # Source this script before running the OCR workflow to ensure proper library linking.
 # Usage: source execution/setup_env.sh
 
+# If CONDA_PREFIX is not set (e.g. in n8n/cron), set it manually to the paddle environment
 if [ -z "$CONDA_PREFIX" ]; then
-    echo "Warning: Conda environment not active. Please activate your 'paddle' environment first."
+    export CONDA_PREFIX="/home/adam1972/miniconda3/envs/paddle"
+    echo "Info: Manually set CONDA_PREFIX to $CONDA_PREFIX"
 fi
 
 # Export library path so Paddle can find cuDNN/CUDA libraries in Conda environment
-# This fixes the "libcudnn.so not found" and "cudaGetDeviceProperties_v2" errors
-if [ -n "$CONDA_PREFIX" ]; then
-    export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
-    echo "Runtime environment configured for PaddleOCR (GPU)"
-    echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
-else
-    echo "Error: CONDA_PREFIX is empty. Unable to set LD_LIBRARY_PATH correcty."
-fi
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+echo "Runtime environment configured for PaddleOCR (GPU)"
+echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
