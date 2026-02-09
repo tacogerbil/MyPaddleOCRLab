@@ -114,43 +114,31 @@ class PaddleOCRProcessor:
 
     def _parse_library_output(self, raw_results: Union[List, Any]) -> str:
         """
-        Convert PaddleOCR's complex list structure into a single string.
-        Handles both List[List] (Single Image) and List[List[List]] (PDF pages).
+        Convert PaddleOCR's complex structure into a single string.
+        Handles both OCRResult objects (PaddleOCR 3.x) and legacy list formats.
         """
         text_lines = []
         
-        # Flatten logic: Paddle output varies by version/input type
-        # Robust iteration:
         if raw_results is None:
             return ""
-            
-        # If it's a list containing None (happens on empty pages sometimes)
-        if isinstance(raw_results, list) and len(raw_results) > 0:
-            if raw_results[0] is None:
-                return ""
-
-        # Recursive/Iterative text extraction
-        # Standard result: [ [ [[coords], ("text", score)] ... ] ]
         
+        # PaddleOCR 3.x returns a list of OCRResult objects
+        # Each OCRResult has a 'rec_texts' field containing the detected text
         try:
-            for page_result in raw_results:
-                if not page_result: 
-                    continue
-                # page_result might be the line itself if single image? 
-                # PaddleOCR API is consistent: result is list of lines.
-                # If PDF, it might be list of pages, where each page is list of lines.
-                
-                # Check depth
-                if isinstance(page_result, list) and len(page_result) > 0 and isinstance(page_result[0], list) and isinstance(page_result[0][0], list):
-                     # It's a page containing lines
-                     for line in page_result:
-                         if line and len(line) >= 2:
-                             text, score = line[1]
-                             text_lines.append(text)
-                elif isinstance(page_result, list) and len(page_result) >= 2:
-                    # It's a single line: [coords, (text, score)]
-                    text, score = page_result[1]
-                    text_lines.append(text)
+            for result in raw_results:
+                # Check if it's an OCRResult object (has rec_texts attribute)
+                if hasattr(result, 'rec_texts'):
+                    text_lines.extend(result.rec_texts)
+                # Or if it's a dict with 'rec_texts' key
+                elif isinstance(result, dict) and 'rec_texts' in result:
+                    text_lines.extend(result['rec_texts'])
+                # Legacy format: list of lines
+                elif isinstance(result, list):
+                    for line in result:
+                        if line and len(line) >= 2:
+                            # Format: [coords, (text, score)]
+                            text, score = line[1]
+                            text_lines.append(text)
         
         except Exception as e:
             logger.error(f"Error parsing PaddleOCR output structure: {e}")
