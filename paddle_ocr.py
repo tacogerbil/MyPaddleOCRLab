@@ -83,15 +83,15 @@ class PaddleOCRProcessor:
         
         try:
             # Run OCR (angle classification controlled via use_angle_cls during init)
-            logger.info(f"Calling PaddleOCR.ocr() on {file_path}...")
+            print(f"DEBUG OCR: Calling PaddleOCR.ocr() on {file_path}...")
             results = self._engine_instance.ocr(str(file_path))
             
             # DEBUG: Inspect raw results
-            logger.info(f"OCR call completed. Result type: {type(results)}")
-            logger.info(f"Result length: {len(results) if results else 0}")
+            print(f"DEBUG OCR: Call completed. Result type: {type(results)}")
+            print(f"DEBUG OCR: Result length: {len(results) if results else 0}")
             if results:
-                logger.info(f"First element type: {type(results[0])}")
-                logger.info(f"First element: {results[0]}")
+                print(f"DEBUG OCR: First element type: {type(results[0])}")
+                print(f"DEBUG OCR: First element content: {results[0]}")
             
             if not results:
                 logger.warning(f"No text detected in {file_path}")
@@ -99,6 +99,7 @@ class PaddleOCRProcessor:
 
             # Parse and normalize
             parsed_text = self._parse_library_output(results)
+            print(f"DEBUG OCR: Parsed text length: {len(parsed_text)}")
             
             logger.info("OCR execution successful.")
             return {
