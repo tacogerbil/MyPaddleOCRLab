@@ -198,13 +198,25 @@ class PaddleOCRProcessor:
             elif isinstance(page_result, dict) and 'rec_texts' in page_result:
                 return "\n".join(page_result['rec_texts'])
             
-            # Legacy list format: [ [coords, [text, score]], ... ]
+            # Check if it's a list containing the result dict (Paddle v3/v4 behavior on some pipelines)
+            # The log shows: [{'rec_texts': [...], ...}]
             if isinstance(page_result, list):
                 for line in page_result:
-                    if line and len(line) >= 2:
-                        # line[1] is (text, score)
-                        text, score = line[1]
-                        text_lines.append(text)
+                    # Modern format: dict inside list
+                    if isinstance(line, dict) and 'rec_texts' in line:
+                        text_lines.extend(line['rec_texts'])
+                        continue
+
+                    # Legacy list format: [ [coords], [text, score] ]
+                    if isinstance(line, list) and len(line) >= 2:
+                        try:
+                            # line[1] is (text, score)
+                            text_data = line[1]
+                            if isinstance(text_data, (list, tuple)) and len(text_data) >= 1:
+                                text_lines.append(text_data[0])
+                        except Exception:
+                            continue
+
         except Exception as e:
             logger.exception(f"Error parsing page result: {e}. Raw result: {page_result}")
             return str(page_result)
