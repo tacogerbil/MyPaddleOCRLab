@@ -70,25 +70,68 @@ Output:
 """
 
     def _send_request(self, prompt: str) -> Dict[str, Any]:
-        """Execute the HTTP request."""
-        # This payload structure assumes the configured endpoint supports "prompt" or "messages".
-        # Adjust based on specific API (Ollama /generate vs OpenWebUI /chat/completions).
-        
-        # Defaulting to Ollama /api/generate style for simplicity based on "llama.cpp" mention
-        payload = {
-            "model": self.model_name,
-            "prompt": prompt,
-            "stream": False
+        """
+        Send HTTP POST request to the LLM API.
+        Supports both Ollama (/api/generate) and OpenWebUI/OpenAI (/v1/chat/completions) formats.
+        """
+        headers = {
+            "Content-Type": "application/json"
         }
         
-        # If the user is using Open WebUI/OpenAI compatible endpoint, payload would need 'messages'.
-        # We can detect this config flag later if needed.
+        # Add Bearer token if API key is present
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        # Determine payload format based on endpoint or presence of API key
+        # OpenWebUI/OpenAI uses /chat/completions and "messages" array
+        is_chat_api = "chat/completions" in self.api_url or self.api_key is not None
+        
+        if is_chat_api:
+             # Chat Completion format (OpenAI/OpenWebUI)
+             # OpenWebUI requires /api/chat/completions or /v1/chat/completions
+             
+             # Auto-fix URL if needed: if user gave base URL "http://host:port" and it's OpenWebUI (has key),
+             # append the chat endpoint if safe to do so.
+             if self.api_key and not self.api_url.endswith("/chat/completions"):
+                 # Simplistic check to avoid double-appending. 
+                 # If url ends in slash, remove it
+                 base = self.api_url.rstrip("/")
+                 # OpenWebUI usually listens on /api/chat/completions or /v1/chat/completions
+                 # We'll default to the one in the screenshot if user just gave base URL
+                 if not "api" in base and not "v1" in base:
+                      self.api_url = f"{base}/api/chat/completions"
+                      # logger.info(f"Auto-corrected URL to: {self.api_url}")
+
+             payload = {
+                "model": self.model_name,
+                "messages": [
+                    {"role": "system", "content": "You are a helpful assistant that corrects OCR text."},
+                    {"role": "user", "content": prompt}
+                ],
+                "stream": False
+            }
+        else:
+            # Legacy Ollama /api/generate format
+            payload = {
+                "model": self.model_name,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.1
+                }
+            }
 
         try:
-            resp = requests.post(self.api_url, json=payload, timeout=120)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
+            # logger.info(f"Sending request to LLM: {self.api_url}")
+            response = requests.post(self.api_url, json=payload, headers=headers, timeout=120)
+            
+            # DEBUG: unexpected 404 might mean wrong endpoint
+            if response.status_code == 404:
+                 logger.error(f"LLM 404 Error. URL used: {self.api_url}")
+                 
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
             raise LLMConnectionError(f"HTTP Request failed: {e}")
 
     def _extract_content(self, response_json: Dict[str, Any]) -> str:
