@@ -12,10 +12,13 @@ try:
     from paddleocr import PaddleOCR
     import numpy as np
     from pdf2image import convert_from_path, pdfinfo_from_path
+    import PIL.Image
+    PIL.Image.MAX_IMAGE_PIXELS = None # Disable decompression bomb check
 except ImportError:
     PaddleOCR = None
     np = None
     convert_from_path = None
+    PIL = None
 
 from config import config
 
