@@ -93,6 +93,11 @@ class WorkflowOrchestrator:
                  # Fallback for empty/legacy
                  pages = [ocr_result.get("raw_text_content", "")]
             
+            # DIAGNOSTIC: Log page count and first 50 chars of each page
+            logger.info(f"DIAGNOSTIC: Processing {len(pages)} page(s)")
+            for idx, page_content in enumerate(pages):
+                logger.info(f"DIAGNOSTIC: Page {idx+1} starts with: {page_content[:50]}...")
+            
             # Determine Output Path
             if output_dir:
                 output_dir.mkdir(parents=True, exist_ok=True)
