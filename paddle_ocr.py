@@ -72,9 +72,6 @@ class PaddleOCRProcessor:
 
         Returns:
             Dict[str, Any]: The structured output.
-        
-        Raises:
-            OCRExecutionError: If execution fails.
         """
         if not file_path.exists():
             raise FileNotFoundError(f"Input file not found: {file_path}")
@@ -82,70 +79,85 @@ class PaddleOCRProcessor:
         logger.info(f"Processing file: {file_path}")
         
         try:
-            # Run OCR (angle classification controlled via use_angle_cls during init)
+            # Run OCR
+            # PaddleOCR.ocr() handles PDF vs Image internally based on extension
             print(f"DEBUG OCR: Calling PaddleOCR.ocr() on {file_path}...")
             results = self._engine_instance.ocr(str(file_path))
             
-            # DEBUG: Inspect raw results
-            print(f"DEBUG OCR: Call completed. Result type: {type(results)}")
-            print(f"DEBUG OCR: Result length: {len(results) if results else 0}")
-            if results:
-                print(f"DEBUG OCR: First element type: {type(results[0])}")
-                print(f"DEBUG OCR: First element content: {results[0]}")
-            
             if not results:
                 logger.warning(f"No text detected in {file_path}")
-                return {"source_file": str(file_path), "raw_text_content": ""}
+                return {
+                    "source_file": str(file_path),
+                    "raw_text_content": "",
+                    "pages": [] 
+                }
 
-            # Parse and normalize
-            parsed_text = self._parse_library_output(results)
-            print(f"DEBUG OCR: Parsed text length: {len(parsed_text)}")
+            # Parse Results based on file type
+            pages_content = []
             
-            logger.info("OCR execution successful.")
+            # Heuristic: If PDF, results is usually [page1, page2, ...]
+            # If Image, results is [line1, line2, ...]
+            # We can check file extension or list depth
+            is_pdf = file_path.suffix.lower() == '.pdf'
+            
+            if is_pdf:
+                # results = [ [line...], [line...] ]
+                for i, page_result in enumerate(results):
+                    page_text = self._parse_single_page(page_result)
+                    pages_content.append(page_text)
+                    print(f"DEBUG OCR: Page {i+1} parsed, length: {len(page_text)}")
+            else:
+                # Single image
+                page_text = self._parse_single_page(results)
+                pages_content.append(page_text)
+
+            full_text = "\n\n".join(pages_content)
+            
+            logger.info(f"OCR execution successful. Extracted {len(pages_content)} pages.")
             return {
                 "source_file": str(file_path),
-                "raw_text_content": parsed_text,
-                "raw_data": results # Keep raw data for debugging/advanced usage if needed
+                "raw_text_content": full_text, # Legacy support
+                "pages": pages_content,        # New page-by-page support
+                "raw_data": results
             }
 
         except Exception as e:
             logger.exception("Unexpected error during OCR processing")
             raise OCRExecutionError(f"Failed to process {file_path}: {str(e)}") from e
 
-    def _parse_library_output(self, raw_results: Union[List, Any]) -> str:
+    def _parse_single_page(self, page_result: Union[List, Any]) -> str:
         """
-        Convert PaddleOCR's complex structure into a single string.
-        Handles both OCRResult objects (PaddleOCR 3.x) and legacy list formats.
+        Parse a single page's OCR result into a string.
         """
         text_lines = []
-        
-        if raw_results is None:
+        if page_result is None:
             return ""
-        
-        # PaddleOCR 3.x returns a list of OCRResult objects
-        # Each OCRResult has a 'rec_texts' field containing the detected text
+            
         try:
-            for result in raw_results:
-                # Check if it's an OCRResult object (has rec_texts attribute)
-                if hasattr(result, 'rec_texts'):
-                    text_lines.extend(result.rec_texts)
-                # Or if it's a dict with 'rec_texts' key
-                elif isinstance(result, dict) and 'rec_texts' in result:
-                    text_lines.extend(result['rec_texts'])
-                # Legacy format: list of lines
-                elif isinstance(result, list):
-                    for line in result:
-                        if line and len(line) >= 2:
-                            # Format: [coords, (text, score)]
-                            text, score = line[1]
-                            text_lines.append(text)
-        
+             # Check if it's an OCRResult object (PaddleOCR 3.x)
+            if hasattr(page_result, 'rec_texts'):
+                return "\n".join(page_result.rec_texts)
+            elif isinstance(page_result, dict) and 'rec_texts' in page_result:
+                return "\n".join(page_result['rec_texts'])
+            
+            # Legacy list format: [ [coords, [text, score]], ... ]
+            if isinstance(page_result, list):
+                for line in page_result:
+                    if line and len(line) >= 2:
+                        # line[1] is (text, score)
+                        text, score = line[1]
+                        text_lines.append(text)
         except Exception as e:
-            logger.error(f"Error parsing PaddleOCR output structure: {e}")
-            # Fallback string conversion for debugging
-            return str(raw_results)
-
+            logger.error(f"Error parsing page result: {e}")
+            return str(page_result)
+            
         return "\n".join(text_lines)
+
+    def _parse_library_output(self, raw_results: Union[List, Any]) -> str:
+        """Legacy helper, redirects to new logic if possible or deprecated."""
+        # This is kept just in case but ideally shouldn't be used if we switch logic.
+        # For simplicity, we won't fully implement it since process_document handles it.
+        return ""
 
 if __name__ == "__main__":
     # Internal Manual Test

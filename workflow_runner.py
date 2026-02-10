@@ -37,6 +37,13 @@ class WorkflowOrchestrator:
         if not file_path.exists():
             logger.error(f"File not found: {file_path}")
             return
+        
+        if file_path.is_dir():
+            if to_stdout:
+                 print(f"ERROR: Provided path '{file_path}' is a directory, not a file. Did you mean to use --batch?")
+            else:
+                 logger.error(f"Provided path '{file_path}' is a directory, not a file. Skipping.")
+            return
 
         try:
             # 1. OCR Step
@@ -63,38 +70,59 @@ class WorkflowOrchestrator:
                     logger.warning("OCR returned empty text. Skipping LLM cleanup.")
                 return
 
-            # 2. LLM Step (optional)
-            if skip_llm:
-                cleaned_text = raw_text
-                if to_stdout:
-                    print("DEBUG: Skipping LLM cleanup (--skip-llm flag set)")
-            else:
+            # 2. LLM Step (Page-by-Page)
+            pages = ocr_result.get("pages", [])
+            cleaned_pages = []
+            
+            if not pages:
+                 # Fallback for empty/legacy
+                 pages = [ocr_result.get("raw_text_content", "")]
+            
+            total_pages = len(pages)
+            if not to_stdout:
+                 logger.info(f"Step 2: Cleaning {total_pages} pages with LLM...")
+
+            for i, page_text in enumerate(pages):
+                page_num = i + 1
+                if skip_llm:
+                    if to_stdout:
+                        print(f"DEBUG: Skipping LLM for Page {page_num}")
+                    cleaned_pages.append(page_text)
+                    continue
+
                 if not to_stdout:
-                    logger.info(f"Step 2: Cleaning text with LLM...")
+                    logger.info(f"  - Cleaning Page {page_num}/{total_pages} ({len(page_text)} chars)...")
                 
-                cleaned_text = self.llm_corrector.cleanup_text(raw_text)
+                try:
+                    cleaned_page = self.llm_corrector.cleanup_text(page_text)
+                    cleaned_pages.append(cleaned_page)
+                except Exception as e:
+                    logger.error(f"Failed to clean page {page_num}: {e}")
+                    cleaned_pages.append(page_text) # Fallback to raw
+
+            final_text = "\n\n--- PAGE BREAK ---\n\n".join(cleaned_pages)
             
             # 3. Output
             if output_dir:
                 # Save to specific directory if provided
                 output_dir.mkdir(parents=True, exist_ok=True)
-                output_path = output_dir / f"{file_path.stem}_cleaned.txt"
-                output_path.write_text(cleaned_text, encoding="utf-8")
+                output_path = output_dir / f"{file_path.stem}.txt"
+                output_path.write_text(final_text, encoding="utf-8")
                 
                 if to_stdout:
                      # If both, also print to stdout
-                     print(cleaned_text)
+                     print(final_text)
                 else: 
                      logger.info(f"Success! Cleaned text saved to: {output_path}")
 
             elif to_stdout:
                 # Only stdout
-                print(cleaned_text)
+                print(final_text)
             else:
                 # Default save location
-                output_path = config.CLEANED_DIR / f"{file_path.stem}_cleaned.txt"
+                output_path = config.CLEANED_DIR / f"{file_path.stem}.txt"
                 with open(output_path, "w", encoding="utf-8") as f:
-                    f.write(cleaned_text)
+                    f.write(final_text)
                 logger.info(f"Success! Cleaned text saved to: {output_path}")
 
         except (OCRExecutionError, LLMConnectionError) as e:

@@ -63,7 +63,7 @@ class LLMCorrector:
 Input: 
 {text}
 
-Task: Correct OCR errors (e.g., '1' vs 'l', '0' vs 'O'), fix broken line breaks, and normalize paragraphs. 
+Task: Correct OCR errors (e.g., '1' vs 'l', '0' vs 'O'), fix broken line breaks, correct obvious spelling errors and normalize paragraphs. 
 Do NOT summarize. Do NOT add commentary. Return ONLY the cleaned text.
 
 Output:
@@ -105,7 +105,7 @@ Output:
              payload = {
                 "model": self.model_name,
                 "messages": [
-                    {"role": "system", "content": "You are a helpful assistant that corrects OCR text."},
+                    {"role": "system", "content": "You are a proofreader with high attention to detail and excellent spelling proficiency that corrects OCR text."},
                     {"role": "user", "content": prompt}
                 ],
                 "stream": False
