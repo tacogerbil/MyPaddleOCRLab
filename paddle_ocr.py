@@ -23,7 +23,8 @@ except ImportError:
 from config import config
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Setup logging
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') # disable global config
 logger = logging.getLogger(__name__)
 
 class OCRExecutionError(Exception):
@@ -96,7 +97,7 @@ class PaddleOCRProcessor:
             # Only call if NOT PDF (or if validation logic needed)
             results = None 
             if file_path.suffix.lower() != '.pdf':
-                 print(f"DEBUG OCR: Calling PaddleOCR.ocr() on image {file_path}...")
+                 logger.info(f"DEBUG OCR: Calling PaddleOCR.ocr() on image {file_path}...")
                  results = self._engine_instance.ocr(str(file_path))
 
             # Parse Results based on file type
@@ -115,7 +116,7 @@ class PaddleOCRProcessor:
                     for i in range(max_pages):
                         # 1-indexed for pdf2image
                         page_num = i + 1
-                        print(f"DEBUG OCR: Processing Page {page_num}/{max_pages}...")
+                        logger.info(f"DEBUG OCR: Processing Page {page_num}/{max_pages}...")
                         
                         # Convert SINGLE page to image (no huge RAM usage)
                         # fmt='jpeg' is faster/smaller than default ppm
@@ -214,6 +215,7 @@ class PaddleOCRProcessor:
 
 if __name__ == "__main__":
     # Internal Manual Test
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     try:
         config.validate()
         print("Initializing PaddleOCR...")
