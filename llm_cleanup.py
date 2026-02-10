@@ -114,7 +114,8 @@ Output:
                     {"role": "system", "content": "You are a proofreader with high attention to detail and excellent spelling proficiency that corrects OCR text."},
                     {"role": "user", "content": prompt}
                 ],
-                "stream": False
+                "stream": False,
+                "temperature": 0  # Deterministic output
             }
         else:
             # Legacy Ollama /api/generate format
