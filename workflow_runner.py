@@ -8,16 +8,19 @@ from llm_cleanup import LLMCorrector, LLMConnectionError
 import os
 os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 
-# Configure Logging
+# Configure Logging - MUST happen before any imports that use logging
 log_dir = Path("logs")
 log_dir.mkdir(exist_ok=True)
+
+# Force reconfiguration of root logger to ensure all modules use our handlers
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(log_dir / "workflow.log"),
         logging.StreamHandler()
-    ]
+    ],
+    force=True  # Override any previous configuration
 )
 logger = logging.getLogger(__name__)
 
