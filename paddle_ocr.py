@@ -10,8 +10,12 @@ os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 # But for production code, it should be at top level.
 try:
     from paddleocr import PaddleOCR
+    import numpy as np
+    from pdf2image import convert_from_path, pdfinfo_from_path
 except ImportError:
     PaddleOCR = None
+    np = None
+    convert_from_path = None
 
 from config import config
 
@@ -85,35 +89,69 @@ class PaddleOCRProcessor:
         logger.info(f"Processing file: {file_path}")
         
         try:
-            # Run OCR
-            # PaddleOCR.ocr() handles PDF vs Image internally based on extension
-            print(f"DEBUG OCR: Calling PaddleOCR.ocr() on {file_path}...")
-            results = self._engine_instance.ocr(str(file_path))
-            
-            if not results:
-                logger.warning(f"No text detected in {file_path}")
-                return {
-                    "source_file": str(file_path),
-                    "raw_text_content": "",
-                    "pages": [] 
-                }
+            # Skip default OCR call for PDF to avoid full Load
+            # Only call if NOT PDF (or if validation logic needed)
+            results = None 
+            if file_path.suffix.lower() != '.pdf':
+                 print(f"DEBUG OCR: Calling PaddleOCR.ocr() on image {file_path}...")
+                 results = self._engine_instance.ocr(str(file_path))
 
             # Parse Results based on file type
             pages_content = []
             
-            # Heuristic: If PDF, results is usually [page1, page2, ...]
-            # If Image, results is [line1, line2, ...]
-            # We can check file extension or list depth
             is_pdf = file_path.suffix.lower() == '.pdf'
             
-            if is_pdf:
-                # results = [ [line...], [line...] ]
-                for i, page_result in enumerate(results):
-                    page_text = self._parse_single_page(page_result)
-                    pages_content.append(page_text)
-                    print(f"DEBUG OCR: Page {i+1} parsed, length: {len(page_text)}")
+            if is_pdf and convert_from_path:
+                try:
+                    # Optimized PDF Processing: Page by Page
+                    # 1. Get total pages
+                    info = pdfinfo_from_path(str(file_path))
+                    max_pages = info.get('Pages', 0)
+                    logger.info(f"PDF detected with {max_pages} pages. Processing sequentially to save RAM.")
+                    
+                    for i in range(max_pages):
+                        # 1-indexed for pdf2image
+                        page_num = i + 1
+                        print(f"DEBUG OCR: Processing Page {page_num}/{max_pages}...")
+                        
+                        # Convert SINGLE page to image (no huge RAM usage)
+                        # fmt='jpeg' is faster/smaller than default ppm
+                        # DPI=300 ensures high quality text for OCR
+                        images = convert_from_path(str(file_path), first_page=page_num, last_page=page_num, fmt='jpeg', dpi=config.PDF_DPI)
+                        
+                        if not images:
+                            continue
+                            
+                        # Convert to numpy for Paddle
+                        img_array = np.array(images[0])
+                        
+                        # OCR this single image
+                        # det_limit_side_len is handled by engine init
+                        result = self._engine_instance.ocr(img_array, cls=config.USE_ANGLE_CLS)
+                        
+                        # Parse
+                        page_text = self._parse_single_page(result)
+                        pages_content.append(page_text)
+                        
+                        # Explicit cleanup
+                        del img_array
+                        del images
+                        
+                except Exception as e:
+                    logger.error(f"Sequential PDF processing failed: {e}. Falling back to default loader.")
+                    # Fallback to loading whole file (might crash but better than nothing)
+                    results = self._engine_instance.ocr(str(file_path), cls=config.USE_ANGLE_CLS)
+                    for page_result in results:
+                         pages_content.append(self._parse_single_page(page_result))
+
+            elif is_pdf:
+                 # Legacy PDF path (if pdf2image missing)
+                 results = self._engine_instance.ocr(str(file_path), cls=config.USE_ANGLE_CLS)
+                 for page_result in results:
+                     pages_content.append(self._parse_single_page(page_result))
             else:
-                # Single image
+                # Single image file
+                results = self._engine_instance.ocr(str(file_path), cls=config.USE_ANGLE_CLS)
                 page_text = self._parse_single_page(results)
                 pages_content.append(page_text)
 

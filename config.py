@@ -89,6 +89,11 @@ class Config:
         """Batch size for text recognition. Lower to 1 or 2 to save GPU memory."""
         return int(os.getenv("REC_BATCH_NUM", "6"))
 
+    @property
+    def PDF_DPI(self) -> int:
+        """DPI for converting PDF pages to images. 200-300 is good for OCR."""
+        return int(os.getenv("PDF_DPI", "300"))
+
     def validate(self):
         """Ensure all critical paths exist."""
         self.INPUT_DIR.mkdir(parents=True, exist_ok=True)

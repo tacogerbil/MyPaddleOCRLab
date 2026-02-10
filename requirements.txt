@@ -1,0 +1,13 @@
+# Core
+paddlepaddle-gpu>=2.6.0  # Or paddlepaddle if CPU only
+paddleocr>=2.7.0
+numpy
+opencv-python
+
+# Image/PDF Processing
+pdf2image
+
+# Utilities
+requests
+python-dotenv
+argparse
