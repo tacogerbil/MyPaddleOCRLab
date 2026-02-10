@@ -63,7 +63,13 @@ class LLMCorrector:
 Input: 
 {text}
 
-Task: Correct OCR errors (e.g., '1' vs 'l', '0' vs 'O'), fix broken line breaks, correct obvious spelling errors and normalize paragraphs. 
+Task: Clean up OCR errors and formatting issues:
+1. Correct OCR character errors (e.g., '1' vs 'l', '0' vs 'O', mixed case in words)
+2. Normalize capitalization (e.g., "FoLDer" → "Folder", "OBAke" → "Obake")
+3. Merge table of contents entries with their page numbers (e.g., if a line ends with a title and the next line is just dots and numbers like "..269", merge them onto one line)
+4. Fix broken line breaks within paragraphs
+5. Correct obvious spelling errors
+
 Do NOT summarize. Do NOT add commentary. Return ONLY the cleaned text.
 
 Output:
