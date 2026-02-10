@@ -108,6 +108,10 @@ class PaddleOCRProcessor:
             if is_pdf and convert_from_path:
                 try:
                     # Optimized PDF Processing: Page by Page
+                    # Pre-check file existence
+                    if not os.path.exists(str(file_path)):
+                         raise FileNotFoundError(f"File vanished before processing: {file_path}")
+                         
                     # 1. Get total pages
                     info = pdfinfo_from_path(str(file_path))
                     max_pages = info.get('Pages', 0)
@@ -202,7 +206,7 @@ class PaddleOCRProcessor:
                         text, score = line[1]
                         text_lines.append(text)
         except Exception as e:
-            logger.error(f"Error parsing page result: {e}")
+            logger.exception(f"Error parsing page result: {e}. Raw result: {page_result}")
             return str(page_result)
             
         return "\n".join(text_lines)
