@@ -91,8 +91,8 @@ class Config:
 
     @property
     def PDF_DPI(self) -> int:
-        """DPI for converting PDF pages to images. 200-300 is good for OCR."""
-        return int(os.getenv("PDF_DPI", "300"))
+        """DPI for converting PDF pages to images. 200 is good balance; 300 is heavy."""
+        return int(os.getenv("PDF_DPI", "200"))
 
     def validate(self):
         """Ensure all critical paths exist."""
