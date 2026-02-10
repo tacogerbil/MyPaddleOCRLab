@@ -17,10 +17,10 @@ class WorkflowOrchestrator:
     Coordinator class that stitches together OCR and LLM Cleanup.
     This replaces n8n for manual/local execution.
     """
-    def __init__(self):
+    def __init__(self, llm_url: str = None, llm_api_key: str = None, llm_model: str = None):
         config.validate()
         self.ocr_processor = PaddleOCRProcessor()
-        self.llm_corrector = LLMCorrector()
+        self.llm_corrector = LLMCorrector(llm_url=llm_url, llm_api_key=llm_api_key, llm_model=llm_model)
         
     def process_file(self, file_path: Path, to_stdout: bool = False):
         """Run the full pipeline on a single file."""
@@ -100,10 +100,13 @@ if __name__ == "__main__":
     parser.add_argument("--file", type=Path, help="Specific file to process")
     parser.add_argument("--batch", action="store_true", help="Process all files in INPUT_DIR")
     parser.add_argument("--stdout", action="store_true", help="Print cleaned text to stdout (for n8n)")
+    parser.add_argument("--llm-url", type=str, help="LLM API endpoint URL (overrides .env)")
+    parser.add_argument("--llm-api-key", type=str, help="API Key for OpenWebUI/OpenAI (overrides .env)")
+    parser.add_argument("--llm-model", type=str, help="LLM model name (overrides .env)")
     
     args = parser.parse_args()
     
-    orchestrator = WorkflowOrchestrator()
+    orchestrator = WorkflowOrchestrator(llm_url=args.llm_url, llm_api_key=args.llm_api_key, llm_model=args.llm_model)
     
     if args.file:
         orchestrator.process_file(args.file, to_stdout=args.stdout)

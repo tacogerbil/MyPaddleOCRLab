@@ -24,40 +24,38 @@ class LLMCorrector:
     Responsible for sending dirty OCR text to the LLM and retrieving the cleaned version.
     """
 
-    def __init__(self):
-        """Initialize using global config."""
-        self.api_url = config.LLM_API_URL
-        self.model_name = config.LLM_MODEL_NAME
+    def __init__(self, llm_url: str = None, llm_api_key: str = None, llm_model: str = None):
+        """Initialize using global config or provided overrides."""
+        self.api_url = llm_url if llm_url else config.LLM_API_URL
+        self.api_key = llm_api_key  # Optional API key for OpenWebUI/OpenAI
+        self.model_name = llm_model if llm_model else config.LLM_MODEL_NAME
+        
+        # Auto-adjust URL mainly for OpenWebUI which often omits /chat/completions in the base URL
+        # If user provides a base URL like http://192.168.1.101:3000, we might need to append /api/chat/completions
+        # But we'll trust the input for now unless it's clearly missing the endpoint.
+        
         # self.provider could be inferred from URL or set explicitly if api schemas differ wildly.
         # For now, we assume a standard Ollama/OpenAI-like "generate" or "chat" endpoint.
 
-    def cleanup_text(self, dirty_text: str) -> str:
+    def cleanup_text(self, raw_text: str) -> str:
         """
-        Send text to LLM for correction.
-
-        Args:
-            dirty_text (str): The raw output from the OCR engine.
-
-        Returns:
-            str: The corrected, normalized text.
-        
-        Raises:
-            LLMConnectionError: If API call fails.
+        Send raw OCR text to the LLM for correction.
         """
-        if not dirty_text.strip():
-            logger.warning("Received empty text for cleanup. Skipping.")
+        if not raw_text.strip():
             return ""
 
-        prompt = self._construct_prompt(dirty_text)
+        prompt = self._construct_prompt(raw_text)
         
         try:
-            logger.info(f"Sending {len(dirty_text)} chars to LLM ({self.model_name})...")
             response = self._send_request(prompt)
-            return self._extract_content(response)
-
+            cleaned_text = self._extract_content(response)
+            return cleaned_text
+        except LLMConnectionError as e:
+            logger.error(f"LLM Cleanup failed: {e}")
+            return raw_text  # Fallback to raw text on failure
         except Exception as e:
-            logger.exception("LLM cleanup failed.")
-            raise LLMConnectionError(f"Failed to cleanup text: {str(e)}") from e
+            logger.exception("Unexpected error during LLM cleanup")
+            return raw_text
 
     def _construct_prompt(self, text: str) -> str:
         """create the system/user prompt payload."""
