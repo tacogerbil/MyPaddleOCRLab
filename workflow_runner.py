@@ -87,52 +87,48 @@ class WorkflowOrchestrator:
                  # Fallback for empty/legacy
                  pages = [ocr_result.get("raw_text_content", "")]
             
-            total_pages = len(pages)
+            # Determine Output Path
+            if output_dir:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                output_path = output_dir / f"{file_path.stem}.txt"
+            else:
+                output_path = config.CLEANED_DIR / f"{file_path.stem}.txt"
+            
+            # Reset file (overwrite) at start
             if not to_stdout:
-                 logger.info(f"Step 2: Cleaning {total_pages} pages with LLM...")
+                 with open(output_path, "w", encoding="utf-8") as f:
+                     f.write("") # Clear file
+                 logger.info(f"Streaming output to: {output_path}")
 
             for i, page_text in enumerate(pages):
                 page_num = i + 1
+                
+                # ... (rest of loop logic for cleaning) ...
                 if skip_llm:
+                    cleaned_page = page_text
                     if to_stdout:
                         print(f"DEBUG: Skipping LLM for Page {page_num}")
-                    cleaned_pages.append(page_text)
-                    continue
+                else:
+                    if not to_stdout:
+                        logger.info(f"  - Cleaning Page {page_num}/{total_pages} ({len(page_text)} chars)...")
+                    try:
+                        cleaned_page = self.llm_corrector.cleanup_text(page_text)
+                    except Exception as e:
+                        logger.error(f"Failed to clean page {page_num}: {e}")
+                        cleaned_page = page_text # Fallback
 
-                if not to_stdout:
-                    logger.info(f"  - Cleaning Page {page_num}/{total_pages} ({len(page_text)} chars)...")
-                
-                try:
-                    cleaned_page = self.llm_corrector.cleanup_text(page_text)
-                    cleaned_pages.append(cleaned_page)
-                except Exception as e:
-                    logger.error(f"Failed to clean page {page_num}: {e}")
-                    cleaned_pages.append(page_text) # Fallback to raw
-
-            final_text = "\n\n--- PAGE BREAK ---\n\n".join(cleaned_pages)
-            
-            # 3. Output
-            if output_dir:
-                # Save to specific directory if provided
-                output_dir.mkdir(parents=True, exist_ok=True)
-                output_path = output_dir / f"{file_path.stem}.txt"
-                output_path.write_text(final_text, encoding="utf-8")
+                # Output immediately
+                separator = "\n\n--- PAGE BREAK ---\n\n" if i > 0 else ""
+                content_to_write = separator + cleaned_page
                 
                 if to_stdout:
-                     # If both, also print to stdout
-                     print(final_text)
-                else: 
-                     logger.info(f"Success! Cleaned text saved to: {output_path}")
-
-            elif to_stdout:
-                # Only stdout
-                print(final_text)
-            else:
-                # Default save location
-                output_path = config.CLEANED_DIR / f"{file_path.stem}.txt"
-                with open(output_path, "w", encoding="utf-8") as f:
-                    f.write(final_text)
-                logger.info(f"Success! Cleaned text saved to: {output_path}")
+                    print(content_to_write)
+                else:
+                    with open(output_path, "a", encoding="utf-8") as f:
+                        f.write(content_to_write)
+            
+            if not to_stdout:
+                logger.info(f"Success! Finished processing {total_pages} pages.")
 
         except (OCRExecutionError, LLMConnectionError) as e:
             logger.error(f"Workflow failed for {file_path.name}: {e}")
