@@ -139,14 +139,19 @@ class PaddleOCRProcessor:
                         del images
                         
                 except Exception as e:
-                    logger.error(f"Sequential PDF processing failed: {e}. Falling back to default loader.")
-                    # Fallback to loading whole file (might crash but better than nothing)
-                    results = self._engine_instance.ocr(str(file_path))
-                    for page_result in results:
-                         pages_content.append(self._parse_single_page(page_result))
+                    logger.error(f"Sequential PDF processing failed: {e}. Aborting to save RAM.")
+                    logger.error("Please fix pdf2image/poppler installation or check the file.")
+                    # Do NOT fallback to loading whole file - it crashes the machine (OOM)
+                    return {
+                        "source_file": str(file_path),
+                        "raw_text_content": "",
+                        "pages": [],
+                        "error": str(e)
+                    }
 
             elif is_pdf:
                  # Legacy PDF path (if pdf2image missing)
+                 logger.warning("pdf2image not found. Loading entire PDF into RAM (Warning: May crash on large files)...")
                  results = self._engine_instance.ocr(str(file_path))
                  for page_result in results:
                      pages_content.append(self._parse_single_page(page_result))
