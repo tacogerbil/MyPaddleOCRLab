@@ -100,11 +100,11 @@ class WorkflowOrchestrator:
             else:
                 output_path = config.CLEANED_DIR / f"{file_path.stem}.txt"
             
-            # Reset file (overwrite) at start
-            if not to_stdout:
-                 with open(output_path, "w", encoding="utf-8") as f:
-                     f.write("") # Clear file
-                 logger.info(f"Streaming output to: {output_path}")
+            # Reset file (overwrite) at start - ALWAYS create output file
+            output_dir.mkdir(parents=True, exist_ok=True) if output_dir else config.CLEANED_DIR.mkdir(parents=True, exist_ok=True)
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write("")  # Clear file
+            logger.info(f"Streaming output to: {output_path}")
 
             for i, page_text in enumerate(pages):
                 page_num = i + 1
@@ -127,11 +127,12 @@ class WorkflowOrchestrator:
                 separator = "\n\n--- PAGE BREAK ---\n\n" if i > 0 else ""
                 content_to_write = separator + cleaned_page
                 
+                # Output immediately - write to BOTH stdout and file
                 if to_stdout:
                     print(content_to_write)
-                else:
-                    with open(output_path, "a", encoding="utf-8") as f:
-                        f.write(content_to_write)
+                # Always write to file
+                with open(output_path, "a", encoding="utf-8") as f:
+                    f.write(content_to_write)
             
             if not to_stdout:
                 logger.info(f"Success! Finished processing {total_pages} pages.")
