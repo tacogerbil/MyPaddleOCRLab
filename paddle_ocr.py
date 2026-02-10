@@ -127,7 +127,8 @@ class PaddleOCRProcessor:
                         
                         # OCR this single image
                         # det_limit_side_len is handled by engine init
-                        result = self._engine_instance.ocr(img_array, cls=config.USE_ANGLE_CLS)
+                        # We remove cls= here as it's causing TypeError. Init handles it.
+                        result = self._engine_instance.ocr(img_array)
                         
                         # Parse
                         page_text = self._parse_single_page(result)
@@ -140,18 +141,18 @@ class PaddleOCRProcessor:
                 except Exception as e:
                     logger.error(f"Sequential PDF processing failed: {e}. Falling back to default loader.")
                     # Fallback to loading whole file (might crash but better than nothing)
-                    results = self._engine_instance.ocr(str(file_path), cls=config.USE_ANGLE_CLS)
+                    results = self._engine_instance.ocr(str(file_path))
                     for page_result in results:
                          pages_content.append(self._parse_single_page(page_result))
 
             elif is_pdf:
                  # Legacy PDF path (if pdf2image missing)
-                 results = self._engine_instance.ocr(str(file_path), cls=config.USE_ANGLE_CLS)
+                 results = self._engine_instance.ocr(str(file_path))
                  for page_result in results:
                      pages_content.append(self._parse_single_page(page_result))
             else:
                 # Single image file
-                results = self._engine_instance.ocr(str(file_path), cls=config.USE_ANGLE_CLS)
+                results = self._engine_instance.ocr(str(file_path))
                 page_text = self._parse_single_page(results)
                 pages_content.append(page_text)
 
