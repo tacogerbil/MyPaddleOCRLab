@@ -36,9 +36,12 @@ class WorkflowOrchestrator:
         
     def process_file(self, file_path: Path, output_dir: Path = None, to_stdout: bool = False, skip_llm: bool = False):
         """Run the full pipeline on a single file."""
+        logger.info(f"ENTRY: process_file called with file_path={file_path}, to_stdout={to_stdout}")
+        
         # Smart Path Resolution
         # If not absolute, try leveraging INPUT_DIR or just assume it's relative to CWD
         if not file_path.is_absolute():
+            logger.info(f"Path is relative, resolving...")
             # If default logic, try relative to input dir. If user passed CLI path, assume CWD relative.
             # But here we handle both:
             possible_path = config.INPUT_DIR / file_path
