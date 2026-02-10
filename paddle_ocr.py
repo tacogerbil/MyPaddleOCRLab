@@ -57,7 +57,13 @@ class PaddleOCRProcessor:
                     device=device_arg,
                     # Disable preprocessing models that cause cuDNN initialization errors
                     use_doc_orientation_classify=False,
-                    use_doc_unwarping=False
+                    use_doc_unwarping=False,
+                    # Memory Optimization Args
+                    det_limit_side_len=config.DET_LIMIT_SIDE_LEN,
+                    det_limit_type=config.DET_LIMIT_TYPE,
+                    rec_batch_num=config.REC_BATCH_NUM,
+                    # Ensure we don't hog CPU if falling back
+                    enable_mkldnn=False 
                 )
                 logger.info("PaddleOCR Engine initialized successfully.")
             except Exception as e:

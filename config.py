@@ -72,6 +72,23 @@ class Config:
         """Show internal PaddleOCR logs."""
         return os.getenv("SHOW_LOG", "false").lower() == "true"
 
+    # --- Memory / Performance Tuning ---
+    @property
+    def DET_LIMIT_SIDE_LEN(self) -> int:
+        """Limit the max side length of the image during detection to save memory."""
+        # Default is 960. If OOM, lower this (e.g. 736, 512).
+        return int(os.getenv("DET_LIMIT_SIDE_LEN", "960"))
+
+    @property
+    def DET_LIMIT_TYPE(self) -> str:
+        """Resize strategy: 'max' or 'min'."""
+        return os.getenv("DET_LIMIT_TYPE", "max")
+
+    @property
+    def REC_BATCH_NUM(self) -> int:
+        """Batch size for text recognition. Lower to 1 or 2 to save GPU memory."""
+        return int(os.getenv("REC_BATCH_NUM", "6"))
+
     def validate(self):
         """Ensure all critical paths exist."""
         self.INPUT_DIR.mkdir(parents=True, exist_ok=True)
