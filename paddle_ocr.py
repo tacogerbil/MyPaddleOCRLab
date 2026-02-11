@@ -72,8 +72,8 @@ class PaddleOCRProcessor:
             
             logger.info(f"Initializing PaddleOCR Engine (GPU={config.USE_GPU}, AngleCls={config.USE_ANGLE_CLS}, Lang={config.LANG})...")
             
+            # Initialize core OCR engine (must succeed)
             try:
-                # PaddleOCR 3.x initialization with modern parameters
                 device_arg = "gpu" if config.USE_GPU else "cpu"
                 cls._engine_instance = PaddleOCR(
                     use_angle_cls=config.USE_ANGLE_CLS,
@@ -84,20 +84,26 @@ class PaddleOCRProcessor:
                     rec_batch_num=config.REC_BATCH_NUM
                 )
                 logger.info("PaddleOCR Engine initialized successfully.")
+            except Exception as e:
+                raise OCRExecutionError(f"PaddleOCR init failed: {e}") from e
 
-                # Initialize Layout Analysis if enabled AND available
-                if config.ENABLE_LAYOUT_ANALYSIS and PPStructureV3 is not None:
+            # Initialize Layout Analysis (must succeed if enabled)
+            if config.ENABLE_LAYOUT_ANALYSIS:
+                if PPStructureV3 is None:
+                    raise OCRExecutionError(
+                        "ENABLE_LAYOUT_ANALYSIS=true but PPStructureV3 not importable. "
+                        "Install with: pip install 'paddlex[ocr]'")
+                try:
                     logger.info("Initializing PPStructureV3 (Layout Analysis)...")
                     cls._structure_instance = PPStructureV3(
                         use_doc_orientation_classify=config.USE_ANGLE_CLS,
                         lang=config.LANG
                     )
                     logger.info("PPStructureV3 initialized successfully.")
-                elif config.ENABLE_LAYOUT_ANALYSIS and PPStructureV3 is None:
-                    logger.warning("PPStructureV3 not available in this paddleocr version. Layout analysis disabled.")
-            except Exception as e:
-                logger.error(f"Failed to initialize PaddleOCR: {e}")
-                raise OCRExecutionError(f"Initialization failed: {e}")
+                except Exception as e:
+                    raise OCRExecutionError(
+                        f"PPStructureV3 init failed: {e}. "
+                        "Install deps with: pip install 'paddlex[ocr]'") from e
 
     def _parse_structure_v3_output(self, structure_result: Any, img_height: int) -> str:
         """
