@@ -99,6 +99,17 @@ class Config:
         """DPI for converting PDF pages to images. 200 is good balance; 300 is heavy."""
         return int(os.getenv("PDF_DPI", "200"))
 
+    # --- Advanced Layout Analysis ---
+    @property
+    def ENABLE_LAYOUT_ANALYSIS(self) -> bool:
+        """Enable PPStructure for advanced layout analysis (header/footer/caption filtering)."""
+        return os.getenv("ENABLE_LAYOUT_ANALYSIS", "true").lower() == "true"
+
+    @property
+    def IGNORE_CAPTIONS(self) -> bool:
+        """Enable heuristic filtering of likely captions and footnotes."""
+        return os.getenv("IGNORE_CAPTIONS", "true").lower() == "true"
+
     def validate(self):
         """Ensure all critical paths exist."""
         self.INPUT_DIR.mkdir(parents=True, exist_ok=True)
