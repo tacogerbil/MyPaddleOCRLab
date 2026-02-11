@@ -114,7 +114,7 @@ class WorkflowOrchestrator:
             # Reset file (overwrite) at start - ALWAYS create output file
             output_dir.mkdir(parents=True, exist_ok=True) if output_dir else config.CLEANED_DIR.mkdir(parents=True, exist_ok=True)
             with open(output_path, "w", encoding="utf-8") as f:
-                f.write("")  # Clear file
+                f.write("<!-- FILE CREATED BY PYTHON WORKFLOW_RUNNER -->\n")  # Marker to confirm Python is writing
             logger.info(f"Streaming output to: {output_path}")
 
             for i, page_text in enumerate(pages):
