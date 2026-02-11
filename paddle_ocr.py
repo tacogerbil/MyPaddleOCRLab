@@ -159,96 +159,22 @@ class PaddleOCRProcessor:
     def process_document(self, file_path: Path) -> Dict[str, Any]:
         """
         Run OCR on the given document (Image or PDF).
+        Processes PDFs page-by-page to avoid OOM on large books.
         Returns a dictionary containing metadata and extracted text.
+
+        Note: For streaming (save-as-you-go), use iter_pages() instead.
         """
-        if not file_path.exists():
-            raise FileNotFoundError(f"Input file not found: {file_path}")
-
-        file_path = file_path.resolve()
-        is_pdf = file_path.suffix.lower() == '.pdf'
         pages_content = []
-        raw_results = []
-        
-        try:
-            if is_pdf:
-                # Use pdf2image for robust rendering
-                logger.info(f"Converting PDF to images: {file_path.name}")
-                
-                # Get total pages first
-                # info = pdfinfo_from_path(file_path)
-                # total_pages = info["Pages"]
-                
-                # Convert PDF to images in memory
-                images = convert_from_path(str(file_path), dpi=config.PDF_DPI)
-                
-                logger.info(f"Processing {len(images)} pages...")
-                
-                for i, img in enumerate(images):
-                    # Convert to numpy array for PaddleOCR
-                    img_np = np.array(img)
-                    
-                    if config.ENABLE_LAYOUT_ANALYSIS and self._structure_instance:
-                        # --- PPStructureV3 Layout Analysis Flow ---
-                        try:
-                            # PPStructureV3.predict() expects image path or numpy array
-                            # It returns a list of page results with layout_det_res
-                            result = self._structure_instance.predict(input=img_np)
-                            
-                            # Parse and filter the structured output
-                            page_text = self._parse_structure_v3_output(result, img_np.shape[0])
-                            pages_content.append(page_text)
-                            raw_results.append(result)
-                        except Exception as e:
-                            logger.warning(f\"PPStructureV3 failed on page {i+1}: {e}. Falling back to standard OCR.\")
-                            # Fallback to standard OCR
-                            result = self._engine_instance.ocr(img_np, cls=config.USE_ANGLE_CLS)
-                            pages_content.append(self._parse_single_page(result))
-                            raw_results.append(result)
-                    else:
-                        # --- Standard OCR Flow ---
-                        result = self._engine_instance.ocr(img_np, cls=config.USE_ANGLE_CLS)
-                        pages_content.append(self._parse_single_page(result))
-                        raw_results.append(result)
-                        
-                    # Explicit cleanup
-                    del img_np
-                    if i % 5 == 0:
-                        gc.collect()
+        for page_num, total_pages, page_text in self.iter_pages(file_path):
+            pages_content.append(page_text)
 
-            else:
-                # Single Image
-                if config.ENABLE_LAYOUT_ANALYSIS and self._structure_instance:
-                    # PPStructureV3 Layout Analysis for Image
-                    try:
-                        result = self._structure_instance.predict(input=str(file_path))
-                        page_text = self._parse_structure_v3_output(result, 0)  # Height not critical for single image
-                        pages_content.append(page_text)
-                        raw_results.append(result)
-                    except Exception as e:
-                        logger.warning(f"PPStructureV3 failed on image: {e}. Falling back to standard OCR.")
-                        result = self._engine_instance.ocr(str(file_path), cls=config.USE_ANGLE_CLS)
-                        pages_content.append(self._parse_single_page(result))
-                        raw_results.append(result)
-                else:
-                    # Standard OCR
-                    result = self._engine_instance.ocr(str(file_path), cls=config.USE_ANGLE_CLS)
-                    pages_content.append(self._parse_single_page(result))
-                
-                raw_results.append(result)
-
-            full_text = "\n\n".join(pages_content)
-            
-            logger.info(f"OCR execution successful. Extracted {len(pages_content)} pages.")
-            return {
-                "source_file": str(file_path),
-                "raw_text_content": full_text, # Legacy support
-                "pages": pages_content,        # New page-by-page support
-                "raw_data": raw_results
-            }
-
-        except Exception as e:
-            logger.error(f"OCR Execution failed: {e}")
-            raise OCRExecutionError(f"Processing failed: {e}")
+        full_text = "\n\n".join(pages_content)
+        logger.info(f"OCR execution successful. Extracted {len(pages_content)} pages.")
+        return {
+            "source_file": str(file_path),
+            "raw_text_content": full_text,
+            "pages": pages_content,
+        }
 
     def _parse_single_page(self, page_result: Union[List, Any]) -> str:
         """
@@ -290,15 +216,31 @@ class PaddleOCRProcessor:
             
         return "\n".join(text_lines)
 
+    def _ocr_single_image(self, img_input) -> str:
+        """
+        OCR a single image (numpy array or file path string).
+        Uses PPStructureV3 if enabled, standard OCR otherwise.
+        No silent fallbacks — if layout analysis fails, it raises so the problem is visible.
+        """
+        if config.ENABLE_LAYOUT_ANALYSIS and self._structure_instance:
+            result = self._structure_instance.predict(input=img_input)
+            img_height = img_input.shape[0] if hasattr(img_input, 'shape') else 0
+            return self._parse_structure_v3_output(result, img_height)
+
+        result = self._engine_instance.ocr(img_input if isinstance(img_input, str) else img_input)
+        return self._parse_single_page(result)
+
     def iter_pages(self, file_path: Path):
         """
         Generator that yields (page_num, total_pages, page_text) one page at a time.
         For PDFs: converts and OCRs each page sequentially, yielding immediately.
         For images: yields a single page.
+        Supports PPStructureV3 layout analysis when enabled.
         """
         if not file_path.exists():
             raise FileNotFoundError(f"Input file not found: {file_path}")
 
+        file_path = file_path.resolve()
         logger.info(f"Processing file: {file_path}")
         is_pdf = file_path.suffix.lower() == '.pdf'
 
@@ -321,8 +263,7 @@ class PaddleOCRProcessor:
                     continue
 
                 img_array = np.array(images[0])
-                result = self._engine_instance.ocr(img_array)
-                page_text = self._parse_single_page(result)
+                page_text = self._ocr_single_image(img_array)
 
                 del img_array
                 del images
@@ -339,8 +280,7 @@ class PaddleOCRProcessor:
         else:
             # Single image
             logger.info(f"OCR: Processing image {file_path.name}...")
-            results = self._engine_instance.ocr(str(file_path))
-            page_text = self._parse_single_page(results)
+            page_text = self._ocr_single_image(str(file_path))
             yield (1, 1, page_text)
 
 if __name__ == "__main__":
