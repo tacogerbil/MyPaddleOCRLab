@@ -146,6 +146,13 @@ class WorkflowOrchestrator:
                 trace_marker = f"<!-- TRACE: Page {page_num}, LLM={'SKIPPED' if skip_llm else 'APPLIED'} -->\n"
                 content_to_write = trace_marker + separator + cleaned_page
                 
+                # DEBUG: Show what we're about to write
+                if to_stdout:
+                    import datetime
+                    timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")
+                    print(f"DEBUG WRITE [{timestamp}]: About to write {len(content_to_write)} chars to file")
+                    print(f"DEBUG WRITE [{timestamp}]: First 100 chars: {content_to_write[:100]}")
+                
                 # Output immediately - write to BOTH stdout and file
                 if to_stdout:
                     print(content_to_write)
