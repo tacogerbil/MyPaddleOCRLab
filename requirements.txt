@@ -1,13 +1,16 @@
-# Core
-paddlepaddle-gpu>=2.6.0  # Or paddlepaddle if CPU only
-paddleocr>=2.7.0
+# Core - PaddlePaddle GPU (CUDA 12.6 pre-built)
+# Install separately: pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
+paddleocr>=3.4.0
+paddlex
 numpy
 opencv-python
 
 # Image/PDF Processing
 pdf2image
+Pillow
 
-# Utilities
+# LLM Cleanup
 requests
+
+# Config
 python-dotenv
-argparse
