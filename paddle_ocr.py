@@ -24,9 +24,9 @@ except ImportError:
 
 # Optional Layout Analysis dependency
 try:
-    from paddleocr import PPStructure
+    from paddleocr import PPStructureV3
 except ImportError:
-    PPStructure = None
+    PPStructureV3 = None
 
 # Optional dependencies
 try:
@@ -85,153 +85,76 @@ class PaddleOCRProcessor:
                 )
                 logger.info("PaddleOCR Engine initialized successfully.")
 
-                # Initialize Layout Analysis if enabled
-                if config.ENABLE_LAYOUT_ANALYSIS:
-                    logger.info("Initializing PPStructure (Layout Analysis)...")
-                    cls._structure_instance = PPStructure(
-                        image_orientation=config.USE_ANGLE_CLS,
+                # Initialize Layout Analysis if enabled AND available
+                if config.ENABLE_LAYOUT_ANALYSIS and PPStructureV3 is not None:
+                    logger.info("Initializing PPStructureV3 (Layout Analysis)...")
+                    cls._structure_instance = PPStructureV3(
+                        use_doc_orientation_classify=config.USE_ANGLE_CLS,
                         lang=config.LANG
                     )
-                    logger.info("PPStructure initialized successfully.")
+                    logger.info("PPStructureV3 initialized successfully.")
+                elif config.ENABLE_LAYOUT_ANALYSIS and PPStructureV3 is None:
+                    logger.warning("PPStructureV3 not available in this paddleocr version. Layout analysis disabled.")
             except Exception as e:
                 logger.error(f"Failed to initialize PaddleOCR: {e}")
                 raise OCRExecutionError(f"Initialization failed: {e}")
 
-    def _detect_horizontal_lines(self, img_array: Any) -> Dict[str, List[int]]:
+    def _parse_structure_v3_output(self, structure_result: Any, img_height: int) -> str:
         """
-        Detect logical header/footer separator lines using morphological operations.
-        Returns Y-coordinates of significant horizontal lines at top/bottom of page.
+        Parse PPStructureV3 output and filter unwanted regions.
+        
+        PPStructureV3 returns layout regions with types like:
+        - 'text': Body text
+        - 'title': Section/story titles
+        - 'header': Page headers
+        - 'footer': Page footers  
+        - 'figure': Images
+        - 'figure_caption': Image captions
+        - 'table': Tables
+        
+        We want to keep: text, title, table
+        We want to remove: header, footer, figure, figure_caption
         """
-        if cv2 is None:
-            return {"top": [], "bottom": []}
-
         try:
-            # Convert to grayscale
-            if len(img_array.shape) == 3:
-                gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
-            else:
-                gray = img_array
-
-            # Apply adaptive threshold to get binary image
-            binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
-
-            # Create horizontal kernel structure
-            # We want lines that are at least 40% of page width
-            h, w = gray.shape
-            min_width = int(w * 0.4)
-            horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (min_width, 1))
-
-            # Detect lines
-            detected_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel, iterations=2)
+            # PPStructureV3.predict() returns a list of page results
+            # Each page result has layout_det_res and overall_ocr_res
+            if not structure_result:
+                return ""
             
-            # Find contours
-            contours, _ = cv2.findContours(detected_lines, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # Get the first (and only) page result
+            page_result = structure_result[0] if isinstance(structure_result, list) else structure_result
             
-            top_lines = []
-            bottom_lines = []
-
-            for cnt in contours:
-                x, y, cw, ch = cv2.boundingRect(cnt)
-                if cw > min_width:
-                    # Determine logical position (0-1.0)
-                    rel_y = y / h
-                    # Top 15% is Header Candidate
-                    if rel_y < 0.15:
-                        top_lines.append(y + ch) # Bottom of the line
-                    # Bottom 15% is Footer Candidate 
-                    elif rel_y > 0.85:
-                        bottom_lines.append(y) # Top of the line
-
-            return {"top": top_lines, "bottom": bottom_lines}
+            # Extract layout detection results
+            layout_regions = page_result.layout_det_res if hasattr(page_result, 'layout_det_res') else []
             
-        except Exception as e:
-            logger.warning(f"Line detection failed: {e}")
-            return {"top": [], "bottom": []}
-
-    def _filter_regions(self, regions: List[Dict], img_height: int, lines: Dict[str, List[int]]) -> List[str]:
-        """
-        Filter layout regions based on position (headers/footers) and heuristics (captions).
-        """
-        if not regions:
-            return []
-
-        # 1. Determine safe zones from lines
-        # Ignore anything ABOVE the lowest top line (header separator)
-        header_limit = max(lines["top"]) if lines["top"] else 0
-        
-        # Ignore anything BELOW the highest bottom line (footer separator)
-        footer_limit = min(lines["bottom"]) if lines["bottom"] else img_height
-
-        valid_regions = []
-        text_heights = []
-
-        # 2. First Pass: Position & Type Filtering
-        for region in regions:
-            bbox = region['bbox'] # [x1, y1, x2, y2]
-            y1, y2 = bbox[1], bbox[3]
-            r_type = region['type']
-            res = region.get('res', [])
-
-            # Filter Figures/Images
-            if r_type == 'figure':
-                continue
+            # Filter and extract text from valid regions
+            valid_text_blocks = []
+            
+            for region in layout_regions:
+                region_type = region.get('type', '').lower()
                 
-            # Filter Headers (Above line)
-            if y2 < header_limit:
-                continue
-                
-            # Filter Footers (Below line)
-            if y1 > footer_limit:
-                continue
-
-            # Check if it's explicitly classified as header/footer by model
-            if r_type in ['header', 'footer']:
-                continue
-
-            # Calculate height for heuristic stats
-            height = y2 - y1
-            text_heights.append(height)
-            
-            valid_regions.append({
-                'text': '\n'.join([line['text'] for line in res]),
-                'y1': y1,
-                'y2': y2,
-                'height': height
-            })
-
-        # 3. Second Pass: Caption Heuristics (Size & Gap)
-        # We need median height to detect "small" text
-        if not text_heights:
-            return []
-            
-        median_height = sorted(text_heights)[len(text_heights) // 2]
-        final_text = []
-        
-        # Sort by Y position
-        valid_regions.sort(key=lambda x: x['y1'])
-        
-        for i, region in enumerate(valid_regions):
-            # Check for Bottom-of-Page Caption
-            # If it's in the bottom 20%, verify size/gap
-            is_bottom = region['y2'] > (img_height * 0.8)
-            
-            if is_bottom and config.IGNORE_CAPTIONS:
-                # Heuristic A: Small Font (Footnote)
-                if region['height'] < (median_height * 0.85):
+                # Skip unwanted region types
+                if region_type in ['header', 'footer', 'figure', 'figure_caption']:
+                    logger.debug(f"Filtering out {region_type} region")
                     continue
                 
-                # Heuristic B: Large Gap (Image Caption)
-                # Check distance from previous region
-                if i > 0:
-                    prev_region = valid_regions[i-1]
-                    gap = region['y1'] - prev_region['y2']
-                    # If gap is > 5% of page height, it's likely a detached caption
-                    if gap > (img_height * 0.05):
-                        continue
-
-            final_text.append(region['text'])
-
-        return final_text
+                # Extract text from this region
+                region_text = region.get('text', '')
+                if region_text and region_text.strip():
+                    valid_text_blocks.append(region_text.strip())
+            
+            # Join all valid text blocks
+            return '\n\n'.join(valid_text_blocks)
+            
+        except Exception as e:
+            logger.error(f"Failed to parse PPStructureV3 output: {e}")
+            # Fallback: try to extract any text we can
+            try:
+                if hasattr(structure_result, 'overall_ocr_res'):
+                    return str(structure_result.overall_ocr_res)
+                return str(structure_result)
+            except:
+                return ""
 
     def process_document(self, file_path: Path) -> Dict[str, Any]:
         """
@@ -265,20 +188,22 @@ class PaddleOCRProcessor:
                     img_np = np.array(img)
                     
                     if config.ENABLE_LAYOUT_ANALYSIS and self._structure_instance:
-                        # --- Layout Analysis Flow ---
-                        # 1. Detect Lines
-                        lines = self._detect_horizontal_lines(img_np)
-                        
-                        # 2. Run PPStructure
-                        # Need to convert RGB (PIL default) to BGR for OpenCV/Paddle
-                        img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR) if cv2 else img_np
-                        result = self._structure_instance(img_bgr)
-                        
-                        # 3. Filter & Extract
-                        page_text = self._filter_regions(result, img_np.shape[0], lines)
-                        pages_content.append("\n\n".join(page_text))
-                        raw_results.append(result)
-                        
+                        # --- PPStructureV3 Layout Analysis Flow ---
+                        try:
+                            # PPStructureV3.predict() expects image path or numpy array
+                            # It returns a list of page results with layout_det_res
+                            result = self._structure_instance.predict(input=img_np)
+                            
+                            # Parse and filter the structured output
+                            page_text = self._parse_structure_v3_output(result, img_np.shape[0])
+                            pages_content.append(page_text)
+                            raw_results.append(result)
+                        except Exception as e:
+                            logger.warning(f\"PPStructureV3 failed on page {i+1}: {e}. Falling back to standard OCR.\")
+                            # Fallback to standard OCR
+                            result = self._engine_instance.ocr(img_np, cls=config.USE_ANGLE_CLS)
+                            pages_content.append(self._parse_single_page(result))
+                            raw_results.append(result)
                     else:
                         # --- Standard OCR Flow ---
                         result = self._engine_instance.ocr(img_np, cls=config.USE_ANGLE_CLS)
@@ -293,17 +218,17 @@ class PaddleOCRProcessor:
             else:
                 # Single Image
                 if config.ENABLE_LAYOUT_ANALYSIS and self._structure_instance:
-                    # Layout Analysis for Image
-                    if cv2:
-                        img = cv2.imread(str(file_path))
-                        lines = self._detect_horizontal_lines(img)
-                        result = self._structure_instance(img)
-                        page_text = self._filter_regions(result, img.shape[0], lines)
-                        pages_content.append("\n\n".join(page_text))
-                    else:
-                        # Fallback if CV2 missing
+                    # PPStructureV3 Layout Analysis for Image
+                    try:
+                        result = self._structure_instance.predict(input=str(file_path))
+                        page_text = self._parse_structure_v3_output(result, 0)  # Height not critical for single image
+                        pages_content.append(page_text)
+                        raw_results.append(result)
+                    except Exception as e:
+                        logger.warning(f"PPStructureV3 failed on image: {e}. Falling back to standard OCR.")
                         result = self._engine_instance.ocr(str(file_path), cls=config.USE_ANGLE_CLS)
                         pages_content.append(self._parse_single_page(result))
+                        raw_results.append(result)
                 else:
                     # Standard OCR
                     result = self._engine_instance.ocr(str(file_path), cls=config.USE_ANGLE_CLS)
