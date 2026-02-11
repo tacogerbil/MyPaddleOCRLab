@@ -97,7 +97,8 @@ class PaddleOCRProcessor:
                     logger.info("Initializing PPStructureV3 (Layout Analysis)...")
                     cls._structure_instance = PPStructureV3(
                         use_doc_orientation_classify=config.USE_ANGLE_CLS,
-                        lang=config.LANG
+                        lang=config.LANG,
+                        use_chart_recognition=False
                     )
                     logger.info("PPStructureV3 initialized successfully.")
                 except Exception as e:
