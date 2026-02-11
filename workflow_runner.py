@@ -99,11 +99,13 @@ class WorkflowOrchestrator:
                 logger.info(f"DIAGNOSTIC: Page {idx+1} starts with: {page_content[:50]}...")
             
             # Determine Output Path
+            # Add suffix if skipping LLM to differentiate output
+            filename_suffix = "_pre_llm" if skip_llm else ""
             if output_dir:
                 output_dir.mkdir(parents=True, exist_ok=True)
-                output_path = output_dir / f"{file_path.stem}.txt"
+                output_path = output_dir / f"{file_path.stem}{filename_suffix}.txt"
             else:
-                output_path = config.CLEANED_DIR / f"{file_path.stem}.txt"
+                output_path = config.CLEANED_DIR / f"{file_path.stem}{filename_suffix}.txt"
             
             # Reset file (overwrite) at start - ALWAYS create output file
             output_dir.mkdir(parents=True, exist_ok=True) if output_dir else config.CLEANED_DIR.mkdir(parents=True, exist_ok=True)
@@ -130,7 +132,9 @@ class WorkflowOrchestrator:
 
                 # Output immediately
                 separator = "\n\n--- PAGE BREAK ---\n\n" if i > 0 else ""
-                content_to_write = separator + cleaned_page
+                # Add trace marker to identify source
+                trace_marker = f"<!-- TRACE: Page {page_num}, LLM={'SKIPPED' if skip_llm else 'APPLIED'} -->\n"
+                content_to_write = trace_marker + separator + cleaned_page
                 
                 # Output immediately - write to BOTH stdout and file
                 if to_stdout:
