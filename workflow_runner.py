@@ -95,8 +95,12 @@ class WorkflowOrchestrator:
             
             # DIAGNOSTIC: Log page count and first 50 chars of each page
             logger.info(f"DIAGNOSTIC: Processing {len(pages)} page(s)")
+            if to_stdout:
+                print(f"DEBUG: Processing {len(pages)} page(s)")
             for idx, page_content in enumerate(pages):
                 logger.info(f"DIAGNOSTIC: Page {idx+1} starts with: {page_content[:50]}...")
+                if to_stdout:
+                    print(f"DEBUG: Page {idx+1} length: {len(page_content)} chars, starts with: {page_content[:50]}...")
             
             # Determine Output Path
             # Add suffix if skipping LLM to differentiate output
