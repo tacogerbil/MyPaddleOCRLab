@@ -1,6 +1,7 @@
 import json
 import logging
 import argparse
+import signal
 import sys
 import time
 from pathlib import Path
@@ -10,6 +11,17 @@ from paddle_ocr import PaddleOCRProcessor, OCRExecutionError
 from llm_cleanup import LLMCorrector, LLMConnectionError
 import os
 os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
+
+# Die cleanly when parent (n8n/SSH) disconnects
+def _shutdown(signum, frame):
+    logger.info(f"Received signal {signum}, shutting down.")
+    sys.exit(1)
+
+for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT, signal.SIGPIPE):
+    try:
+        signal.signal(sig, _shutdown)
+    except (OSError, ValueError):
+        pass  # SIGPIPE not available on Windows
 
 # Configure Logging - MUST happen before any imports that use logging
 log_dir = Path("logs")
@@ -44,6 +56,7 @@ class WorkflowOrchestrator:
         remaining = avg_per_page * (total_pages - page_num)
 
         progress = {
+            "pid": os.getpid(),
             "file": file_stem,
             "page": page_num,
             "total_pages": total_pages,
