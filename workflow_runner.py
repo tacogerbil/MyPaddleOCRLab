@@ -1,5 +1,8 @@
+import json
 import logging
 import argparse
+import sys
+import time
 from pathlib import Path
 from typing import List
 from config import config
@@ -18,7 +21,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(log_dir / "workflow.log"),
-        logging.StreamHandler()
+        logging.StreamHandler(sys.stderr)
     ],
     force=True  # Override any previous configuration
 )
@@ -33,143 +36,117 @@ class WorkflowOrchestrator:
         config.validate()
         self.ocr_processor = PaddleOCRProcessor()
         self.llm_corrector = LLMCorrector(llm_url=llm_url, llm_api_key=llm_api_key, llm_model=llm_model)
-        
+
+    def _write_progress(self, dest_dir: Path, file_stem: str, page_num: int, total_pages: int, status: str, start_time: float):
+        """Write progress.json for n8n or other tools to poll."""
+        elapsed = time.time() - start_time
+        avg_per_page = elapsed / page_num if page_num > 0 else 0
+        remaining = avg_per_page * (total_pages - page_num)
+
+        progress = {
+            "file": file_stem,
+            "page": page_num,
+            "total_pages": total_pages,
+            "percent": round((page_num / total_pages) * 100, 1) if total_pages > 0 else 0,
+            "status": status,
+            "elapsed_seconds": round(elapsed, 1),
+            "eta_seconds": round(remaining, 1),
+        }
+        progress_path = dest_dir / "progress.json"
+        with open(progress_path, "w", encoding="utf-8") as f:
+            json.dump(progress, f)
+
     def process_file(self, file_path: Path, output_dir: Path = None, to_stdout: bool = False, skip_llm: bool = False):
-        """Run the full pipeline on a single file."""
-        logger.info(f"ENTRY: process_file called with file_path={file_path}, to_stdout={to_stdout}")
-        
+        """
+        Run the full pipeline on a single file.
+
+        When to_stdout=True: prints ONLY cleaned text to stdout (for n8n capture). No file write.
+        When to_stdout=False: writes cleaned text to file. No stdout output.
+
+        Resumable: skips pages whose output files already exist.
+        """
+        logger.info(f"ENTRY: process_file called with file_path={file_path}, to_stdout={to_stdout}, skip_llm={skip_llm}")
+
         # Smart Path Resolution
-        # If not absolute, try leveraging INPUT_DIR or just assume it's relative to CWD
         if not file_path.is_absolute():
             logger.info(f"Path is relative, resolving...")
-            # If default logic, try relative to input dir. If user passed CLI path, assume CWD relative.
-            # But here we handle both:
             possible_path = config.INPUT_DIR / file_path
             if possible_path.exists():
                 file_path = possible_path
-            # Else assume CWD relative (already covers file_path itself)
-        
+
         if not file_path.exists():
             logger.error(f"File not found: {file_path}")
             return
-        
+
         if file_path.is_dir():
-            if to_stdout:
-                 print(f"ERROR: Provided path '{file_path}' is a directory, not a file. Did you mean to use --batch?")
-            else:
-                 logger.error(f"Provided path '{file_path}' is a directory, not a file. Skipping.")
+            logger.error(f"Provided path '{file_path}' is a directory, not a file. Skipping.")
             return
 
         try:
             # 1. OCR Step
-            if not to_stdout:
-                logger.info(f"Step 1: Running OCR on {file_path.name}...")
-            else:
-                # Debug output for n8n
-                print(f"DEBUG: Processing file path: {file_path}")
-                print(f"DEBUG: File exists: {file_path.exists()}")
-                print(f"DEBUG: Absolute path: {file_path.absolute()}")
-            
+            logger.info(f"Step 1: Running OCR on {file_path.name}...")
+
             ocr_result = self.ocr_processor.process_document(file_path)
             raw_text = ocr_result.get("raw_text_content", "")
-            
-            # Debug: Show what OCR returned
-            if to_stdout:
-                print(f"DEBUG: OCR returned {len(raw_text)} characters")
-                print(f"DEBUG: First 100 chars: {raw_text[:100]}")
-            
+
             if not raw_text.strip():
-                if to_stdout:
-                    print("ERROR: OCR returned empty text. No text detected in image.")
-                else:
-                    logger.warning("OCR returned empty text. Skipping LLM cleanup.")
+                logger.warning("OCR returned empty text. Skipping LLM cleanup.")
                 return
 
             # 2. LLM Step (Page-by-Page)
             pages = ocr_result.get("pages", [])
-            cleaned_pages = []
-            
+
             if not pages:
                  # Fallback for empty/legacy
                  pages = [ocr_result.get("raw_text_content", "")]
-            
-            # DIAGNOSTIC: Log page count and first 50 chars of each page
-            logger.info(f"DIAGNOSTIC: Processing {len(pages)} page(s)")
-            if to_stdout:
-                print(f"DEBUG: Processing {len(pages)} page(s)")
-            for idx, page_content in enumerate(pages):
-                logger.info(f"DIAGNOSTIC: Page {idx+1} starts with: {page_content[:50]}...")
-                if to_stdout:
-                    print(f"DEBUG: Page {idx+1} length: {len(page_content)} chars, starts with: {page_content[:50]}...")
-            
-            # Determine Output Path
-            # Add suffix if skipping LLM to differentiate output
+
+            total_pages = len(pages)
+            logger.info(f"Processing {total_pages} page(s)")
+
+            # Resolve output directory
+            dest_dir = output_dir if output_dir else config.CLEANED_DIR
+            dest_dir.mkdir(parents=True, exist_ok=True)
             filename_suffix = "_pre_llm" if skip_llm else ""
-            if output_dir:
-                output_dir.mkdir(parents=True, exist_ok=True)
-                output_path = output_dir / f"{file_path.stem}{filename_suffix}.txt"
-            else:
-                output_path = config.CLEANED_DIR / f"{file_path.stem}{filename_suffix}.txt"
-            
-            # Reset file (overwrite) at start - ALWAYS create output file
-            output_dir.mkdir(parents=True, exist_ok=True) if output_dir else config.CLEANED_DIR.mkdir(parents=True, exist_ok=True)
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write("<!-- FILE CREATED BY PYTHON WORKFLOW_RUNNER -->\n")  # Marker to confirm Python is writing
-            
-            # DEBUG: Verify file was cleared
-            if to_stdout:
-                with open(output_path, "r", encoding="utf-8") as f:
-                    file_content = f.read()
-                    print(f"DEBUG FILE CLEAR: File size after clear: {len(file_content)} chars")
-                    print(f"DEBUG FILE CLEAR: Content: {file_content[:200]}")
-            
-            logger.info(f"Streaming output to: {output_path}")
+
+            start_time = time.time()
+            skipped = 0
 
             for i, page_text in enumerate(pages):
                 page_num = i + 1
-                if to_stdout:
-                    print(f"DEBUG LOOP: Iteration {i+1}, page_num={page_num}, page_text length={len(page_text)}")
-                
-                # ... (rest of loop logic for cleaning) ...
+                page_filename = f"{file_path.stem}_page_{page_num:03d}{filename_suffix}.txt"
+                output_path = dest_dir / page_filename
+
+                # Resumability: skip pages that already have output files
+                if not to_stdout and output_path.exists() and output_path.stat().st_size > 0:
+                    logger.info(f"  - Skipping Page {page_num}/{total_pages} (already exists: {page_filename})")
+                    skipped += 1
+                    continue
+
                 if skip_llm:
                     cleaned_page = page_text
-                    if to_stdout:
-                        print(f"DEBUG: Skipping LLM for Page {page_num}")
                 else:
-                    if not to_stdout:
-                        logger.info(f"  - Cleaning Page {page_num}/{total_pages} ({len(page_text)} chars)...")
-                    if to_stdout:
-                        print(f"DEBUG: Calling LLM for Page {page_num}")
+                    logger.info(f"  - Cleaning Page {page_num}/{total_pages} ({len(page_text)} chars)...")
                     try:
                         cleaned_page = self.llm_corrector.cleanup_text(page_text)
-                        if to_stdout:
-                            print(f"DEBUG: LLM returned {len(cleaned_page)} chars")
                     except Exception as e:
                         logger.error(f"Failed to clean page {page_num}: {e}")
-                        cleaned_page = page_text # Fallback
+                        cleaned_page = page_text
 
-                # Output immediately
-                separator = "\n\n--- PAGE BREAK ---\n\n" if i > 0 else ""
-                # Add trace marker to identify source
-                trace_marker = f"<!-- TRACE: Page {page_num}, LLM={'SKIPPED' if skip_llm else 'APPLIED'} -->\n"
-                content_to_write = trace_marker + separator + cleaned_page
-                
-                # DEBUG: Show what we're about to write
                 if to_stdout:
-                    import datetime
-                    timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")
-                    print(f"DEBUG WRITE [{timestamp}]: About to write {len(content_to_write)} chars to file")
-                    print(f"DEBUG WRITE [{timestamp}]: First 100 chars: {content_to_write[:100]}")
-                
-                # Output immediately - write to BOTH stdout and file
-                if to_stdout:
-                    print(content_to_write)
-                # Always write to file
-                with open(output_path, "a", encoding="utf-8") as f:
-                    f.write(content_to_write)
-            
+                    print(cleaned_page)
+                else:
+                    with open(output_path, "w", encoding="utf-8") as f:
+                        f.write(cleaned_page)
+                    logger.info(f"  - Saved: {output_path}")
+                    self._write_progress(dest_dir, file_path.stem, page_num, total_pages, "processing", start_time)
+
+            # Write final progress
             if not to_stdout:
-                logger.info(f"Success! Finished processing {total_pages} pages.")
+                self._write_progress(dest_dir, file_path.stem, total_pages, total_pages, "completed", start_time)
+
+            if skipped > 0:
+                logger.info(f"Resumed: skipped {skipped} already-completed pages.")
+            logger.info(f"Success! Finished processing {total_pages} pages.")
 
         except (OCRExecutionError, LLMConnectionError) as e:
             logger.error(f"Workflow failed for {file_path.name}: {e}")
@@ -179,7 +156,7 @@ class WorkflowOrchestrator:
     def run_batch(self, input_dir: Path):
         """Process all images/PDFs in the input directory."""
         files = list(input_dir.glob("*.pdf")) + list(input_dir.glob("*.png")) + list(input_dir.glob("*.jpg"))
-        
+
         if not files:
             logger.info(f"No compatible files found in {input_dir}")
             return
@@ -192,22 +169,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Manual OCR + LLM Workflow Runner")
     parser.add_argument("--file", type=Path, help="Specific file to process")
     parser.add_argument("--batch", action="store_true", help="Process all files in INPUT_DIR")
-    parser.add_argument("--stdout", action="store_true", help="Print cleaned text to stdout (for n8n)")
+    parser.add_argument("--stdout", action="store_true", help="Print cleaned text to stdout only (for n8n). No file write.")
     parser.add_argument("--llm-url", type=str, help="LLM API endpoint URL (overrides .env)")
     parser.add_argument("--llm-api-key", type=str, help="API Key for OpenWebUI/OpenAI (overrides .env)")
     parser.add_argument("--llm-model", type=str, help="LLM model name (overrides .env)")
     parser.add_argument("--output-dir", type=Path, help="Directory to save output files")
     parser.add_argument("--skip-llm", action="store_true", help="Skip LLM cleanup, output raw OCR text")
-    
+
     args = parser.parse_args()
-    
+
     orchestrator = WorkflowOrchestrator(llm_url=args.llm_url, llm_api_key=args.llm_api_key, llm_model=args.llm_model)
-    
+
     if args.file:
         orchestrator.process_file(args.file, output_dir=args.output_dir, to_stdout=args.stdout, skip_llm=args.skip_llm)
     elif args.batch:
         orchestrator.run_batch(config.INPUT_DIR)
     else:
-        # Default behavior if no args: check config INPUT_DIR
         print("No arguments provided. processing default INPUT_DIR...")
         orchestrator.run_batch(config.INPUT_DIR)

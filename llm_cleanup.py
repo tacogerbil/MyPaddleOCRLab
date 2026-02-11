@@ -1,18 +1,15 @@
 import requests
 import logging
-import json
+import time
 from enum import Enum
 from typing import Optional, Dict, Any
 from config import config
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class LLMProvider(Enum):
     OLLAMA = "ollama"
     OPEN_WEBUI = "open_webui"
-    # Add others as needed
 
 class LLMConnectionError(Exception):
     """Custom exception for errors connecting to the LLM API."""
@@ -24,76 +21,62 @@ class LLMCorrector:
     Responsible for sending dirty OCR text to the LLM and retrieving the cleaned version.
     """
 
+    MAX_RETRIES = 1
+    RETRY_BACKOFF = 5  # seconds
+
     def __init__(self, llm_url: str = None, llm_api_key: str = None, llm_model: str = None):
         """Initialize using global config or provided overrides."""
         self.api_url = llm_url if llm_url else config.LLM_API_URL
-        self.api_key = llm_api_key  # Optional API key for OpenWebUI/OpenAI
+        self.api_key = llm_api_key
         self.model_name = llm_model if llm_model else config.LLM_MODEL_NAME
-        
-        # Auto-adjust URL mainly for OpenWebUI which often omits /chat/completions in the base URL
-        # If user provides a base URL like http://192.168.1.101:3000, we might need to append /api/chat/completions
-        # But we'll trust the input for now unless it's clearly missing the endpoint.
-        
-        # self.provider could be inferred from URL or set explicitly if api schemas differ wildly.
-        # For now, we assume a standard Ollama/OpenAI-like "generate" or "chat" endpoint.
+        self.timeout = config.LLM_TIMEOUT
+
+        # Auto-fix OpenWebUI URL once at init, not on every request
+        if self.api_key and not self.api_url.endswith("/chat/completions"):
+            base = self.api_url.rstrip("/")
+            if "api" not in base and "v1" not in base:
+                self.api_url = f"{base}/api/chat/completions"
+                logger.info(f"Auto-corrected LLM URL to: {self.api_url}")
 
     def cleanup_text(self, raw_text: str) -> str:
         """
         Send raw OCR text to the LLM for correction.
+        Retries once on transient failures before falling back to raw text.
         """
         if not raw_text.strip():
             return ""
 
-        prompt = self._construct_prompt(raw_text)
-        
-        try:
-            response = self._send_request(prompt)
-            cleaned_text = self._extract_content(response)
-            return cleaned_text
-        except LLMConnectionError as e:
-            logger.error(f"LLM Cleanup failed: {e}")
-            return raw_text  # Fallback to raw text on failure
-        except Exception as e:
-            logger.exception("Unexpected error during LLM cleanup")
-            return raw_text
+        last_error = None
+        for attempt in range(1 + self.MAX_RETRIES):
+            try:
+                if attempt > 0:
+                    logger.warning(f"LLM retry {attempt}/{self.MAX_RETRIES} after {self.RETRY_BACKOFF}s backoff...")
+                    time.sleep(self.RETRY_BACKOFF)
+                response = self._send_request(raw_text)
+                return self._extract_content(response)
+            except LLMConnectionError as e:
+                last_error = e
+                logger.warning(f"LLM attempt {attempt + 1} failed: {e}")
+            except Exception as e:
+                last_error = e
+                logger.warning(f"LLM attempt {attempt + 1} unexpected error: {e}")
 
-    def _construct_prompt(self, text: str) -> str:
-        """Create the system/user prompt payload with strict OCR correction rules."""
-        return text  # Just return the raw text - system prompt handles instructions
+        logger.error(f"LLM cleanup failed after {1 + self.MAX_RETRIES} attempts. Falling back to raw text.")
+        return raw_text
 
     def _send_request(self, prompt: str) -> Dict[str, Any]:
         """
         Send HTTP POST request to the LLM API.
         Supports both Ollama (/api/generate) and OpenWebUI/OpenAI (/v1/chat/completions) formats.
         """
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        # Add Bearer token if API key is present
+        headers = {"Content-Type": "application/json"}
+
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        # Determine payload format based on endpoint or presence of API key
-        # OpenWebUI/OpenAI uses /chat/completions and "messages" array
         is_chat_api = "chat/completions" in self.api_url or self.api_key is not None
-        
-        if is_chat_api:
-             # Chat Completion format (OpenAI/OpenWebUI)
-             # OpenWebUI requires /api/chat/completions or /v1/chat/completions
-             
-             # Auto-fix URL if needed: if user gave base URL "http://host:port" and it's OpenWebUI (has key),
-             # append the chat endpoint if safe to do so.
-             if self.api_key and not self.api_url.endswith("/chat/completions"):
-                 # Simplistic check to avoid double-appending. 
-                 # If url ends in slash, remove it
-                 base = self.api_url.rstrip("/")
-                 # OpenWebUI usually listens on /api/chat/completions or /v1/chat/completions
-                 # We'll default to the one in the screenshot if user just gave base URL
-                 if not "api" in base and not "v1" in base:
-                      self.api_url = f"{base}/api/chat/completions"
-                      # logger.info(f"Auto-corrected URL to: {self.api_url}")
 
+        if is_chat_api:
              payload = {
                 "model": self.model_name,
                 "messages": [
@@ -123,9 +106,9 @@ Dot-leader + page number line repair (critical):
   - Preserve the dots
   - Add exactly one space before the page number
 - Examples of lines to merge:
-  - Title\n.2
-  - Title\n..ix
-  - Title .....\n17
+  - Title\\n.2
+  - Title\\n..ix
+  - Title .....\\n17
 
 Line-break fixes:
 - Remove line breaks that split:
@@ -142,10 +125,9 @@ Output rules:
                     {"role": "user", "content": prompt}
                 ],
                 "stream": False,
-                "temperature": 0  # Deterministic output
+                "temperature": 0
             }
         else:
-            # Legacy Ollama /api/generate format
             payload = {
                 "model": self.model_name,
                 "prompt": prompt,
@@ -155,24 +137,14 @@ Output rules:
                 }
             }
 
-        
-        # DIAGNOSTIC: Log the payload being sent
-        logger.info(f"DIAGNOSTIC LLM: Sending request to {self.api_url}")
-        logger.info(f"DIAGNOSTIC LLM: Model: {self.model_name}")
-        logger.info(f"DIAGNOSTIC LLM: Payload keys: {list(payload.keys())}")
-        if 'messages' in payload:
-            logger.info(f"DIAGNOSTIC LLM: System prompt length: {len(payload['messages'][0]['content'])} chars")
-            logger.info(f"DIAGNOSTIC LLM: User content length: {len(payload['messages'][1]['content'])} chars")
-            logger.info(f"DIAGNOSTIC LLM: First 100 chars of system prompt: {payload['messages'][0]['content'][:100]}")
-        
+        logger.info(f"LLM request to {self.api_url} (model={self.model_name}, input={len(prompt)} chars, timeout={self.timeout}s)")
+
         try:
-            # logger.info(f"Sending request to LLM: {self.api_url}")
-            response = requests.post(self.api_url, json=payload, headers=headers, timeout=120)
-            
-            # DEBUG: unexpected 404 might mean wrong endpoint
+            response = requests.post(self.api_url, json=payload, headers=headers, timeout=self.timeout)
+
             if response.status_code == 404:
                  logger.error(f"LLM 404 Error. URL used: {self.api_url}")
-                 
+
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
@@ -180,11 +152,9 @@ Output rules:
 
     def _extract_content(self, response_json: Dict[str, Any]) -> str:
         """Parse strict response from JSON."""
-        # Support Ollama 'response' field
         if "response" in response_json:
             return response_json["response"]
-        
-        # Support OpenAI-style 'choices' field (for Open WebUI)
+
         if "choices" in response_json and len(response_json["choices"]) > 0:
             return response_json["choices"][0].get("message", {}).get("content", "")
 
@@ -192,11 +162,8 @@ Output rules:
         raise LLMConnectionError("Could not parse LLM response.")
 
 if __name__ == "__main__":
-    # Test Block
     try:
         corrector = LLMCorrector()
         print("LLMCorrector initialized.")
-        # test_text = "Th1s is a t3st."
-        # print(corrector.cleanup_text(test_text))
     except Exception as e:
         print(f"Init failed: {e}")

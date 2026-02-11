@@ -38,6 +38,11 @@ class Config:
         """Name of the model to use (specific to the API provider)."""
         return os.getenv("LLM_MODEL_NAME", "llama3.1")
 
+    @property
+    def LLM_TIMEOUT(self) -> int:
+        """Timeout in seconds for LLM API requests. Dense pages may need more time."""
+        return int(os.getenv("LLM_TIMEOUT", "180"))
+
     # --- PaddleOCR Settings ---
     @property
     def IS_DOCKER(self) -> bool:

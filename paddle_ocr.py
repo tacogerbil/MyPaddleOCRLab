@@ -1,3 +1,4 @@
+import gc
 import logging
 import os
 from pathlib import Path
@@ -93,16 +94,8 @@ class PaddleOCRProcessor:
         logger.info(f"Processing file: {file_path}")
         
         try:
-            # Skip default OCR call for PDF to avoid full Load
-            # Only call if NOT PDF (or if validation logic needed)
-            results = None 
-            if file_path.suffix.lower() != '.pdf':
-                 logger.info(f"DEBUG OCR: Calling PaddleOCR.ocr() on image {file_path}...")
-                 results = self._engine_instance.ocr(str(file_path))
-
-            # Parse Results based on file type
             pages_content = []
-            
+            results = None
             is_pdf = file_path.suffix.lower() == '.pdf'
             
             if is_pdf and convert_from_path:
@@ -142,9 +135,10 @@ class PaddleOCRProcessor:
                         page_text = self._parse_single_page(result)
                         pages_content.append(page_text)
                         
-                        # Explicit cleanup
+                        # Explicit cleanup to prevent memory creep on large books
                         del img_array
                         del images
+                        gc.collect()
                         
                 except Exception as e:
                     logger.error(f"Sequential PDF processing failed: {e}. Aborting to save RAM.")
