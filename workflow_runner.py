@@ -119,6 +119,8 @@ class WorkflowOrchestrator:
 
             for i, page_text in enumerate(pages):
                 page_num = i + 1
+                if to_stdout:
+                    print(f"DEBUG LOOP: Iteration {i+1}, page_num={page_num}, page_text length={len(page_text)}")
                 
                 # ... (rest of loop logic for cleaning) ...
                 if skip_llm:
@@ -128,8 +130,12 @@ class WorkflowOrchestrator:
                 else:
                     if not to_stdout:
                         logger.info(f"  - Cleaning Page {page_num}/{total_pages} ({len(page_text)} chars)...")
+                    if to_stdout:
+                        print(f"DEBUG: Calling LLM for Page {page_num}")
                     try:
                         cleaned_page = self.llm_corrector.cleanup_text(page_text)
+                        if to_stdout:
+                            print(f"DEBUG: LLM returned {len(cleaned_page)} chars")
                     except Exception as e:
                         logger.error(f"Failed to clean page {page_num}: {e}")
                         cleaned_page = page_text # Fallback
