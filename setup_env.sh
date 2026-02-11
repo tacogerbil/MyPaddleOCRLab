@@ -10,6 +10,8 @@ if [ -z "$CONDA_PREFIX" ]; then
 fi
 
 # Export library path so Paddle can find cuDNN/CUDA libraries in Conda environment
-export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+# Include nvidia pip package paths for cuDNN, CUDA runtime, etc.
+NVIDIA_PKG_DIR="$CONDA_PREFIX/lib/python3.11/site-packages/nvidia"
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$NVIDIA_PKG_DIR/cudnn/lib:$NVIDIA_PKG_DIR/cuda_runtime/lib:$LD_LIBRARY_PATH
 echo "Runtime environment configured for PaddleOCR (GPU)"
 echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
