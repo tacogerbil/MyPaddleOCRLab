@@ -217,11 +217,58 @@ class PaddleOCRProcessor:
             
         return "\n".join(text_lines)
 
-    def _parse_library_output(self, raw_results: Union[List, Any]) -> str:
-        """Legacy helper, redirects to new logic if possible or deprecated."""
-        # This is kept just in case but ideally shouldn't be used if we switch logic.
-        # For simplicity, we won't fully implement it since process_document handles it.
-        return ""
+    def iter_pages(self, file_path: Path):
+        """
+        Generator that yields (page_num, total_pages, page_text) one page at a time.
+        For PDFs: converts and OCRs each page sequentially, yielding immediately.
+        For images: yields a single page.
+        """
+        if not file_path.exists():
+            raise FileNotFoundError(f"Input file not found: {file_path}")
+
+        logger.info(f"Processing file: {file_path}")
+        is_pdf = file_path.suffix.lower() == '.pdf'
+
+        if is_pdf and convert_from_path:
+            if not os.path.exists(str(file_path)):
+                raise FileNotFoundError(f"File vanished before processing: {file_path}")
+
+            info = pdfinfo_from_path(str(file_path))
+            total_pages = info.get('Pages', 0)
+            logger.info(f"PDF detected with {total_pages} pages. Streaming page-by-page.")
+
+            for i in range(total_pages):
+                page_num = i + 1
+                logger.info(f"OCR: Processing Page {page_num}/{total_pages}...")
+
+                images = convert_from_path(str(file_path), first_page=page_num, last_page=page_num, fmt='jpeg', dpi=config.PDF_DPI)
+
+                if not images:
+                    yield (page_num, total_pages, "")
+                    continue
+
+                img_array = np.array(images[0])
+                result = self._engine_instance.ocr(img_array)
+                page_text = self._parse_single_page(result)
+
+                del img_array
+                del images
+                gc.collect()
+
+                yield (page_num, total_pages, page_text)
+
+        elif is_pdf:
+            logger.warning("pdf2image not found. Loading entire PDF into RAM...")
+            results = self._engine_instance.ocr(str(file_path))
+            total_pages = len(results) if results else 0
+            for i, page_result in enumerate(results):
+                yield (i + 1, total_pages, self._parse_single_page(page_result))
+        else:
+            # Single image
+            logger.info(f"OCR: Processing image {file_path.name}...")
+            results = self._engine_instance.ocr(str(file_path))
+            page_text = self._parse_single_page(results)
+            yield (1, 1, page_text)
 
 if __name__ == "__main__":
     # Internal Manual Test

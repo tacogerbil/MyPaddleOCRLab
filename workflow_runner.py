@@ -83,25 +83,7 @@ class WorkflowOrchestrator:
             return
 
         try:
-            # 1. OCR Step
-            logger.info(f"Step 1: Running OCR on {file_path.name}...")
-
-            ocr_result = self.ocr_processor.process_document(file_path)
-            raw_text = ocr_result.get("raw_text_content", "")
-
-            if not raw_text.strip():
-                logger.warning("OCR returned empty text. Skipping LLM cleanup.")
-                return
-
-            # 2. LLM Step (Page-by-Page)
-            pages = ocr_result.get("pages", [])
-
-            if not pages:
-                 # Fallback for empty/legacy
-                 pages = [ocr_result.get("raw_text_content", "")]
-
-            total_pages = len(pages)
-            logger.info(f"Processing {total_pages} page(s)")
+            logger.info(f"Starting pipeline on {file_path.name}...")
 
             # Resolve output directory
             dest_dir = output_dir if output_dir else config.CLEANED_DIR
@@ -110,9 +92,11 @@ class WorkflowOrchestrator:
 
             start_time = time.time()
             skipped = 0
+            processed = 0
+            total_pages = 0
 
-            for i, page_text in enumerate(pages):
-                page_num = i + 1
+            # Stream pages: OCR → LLM → save, one page at a time
+            for page_num, total_pages, page_text in self.ocr_processor.iter_pages(file_path):
                 page_filename = f"{file_path.stem}_page_{page_num:03d}{filename_suffix}.txt"
                 output_path = dest_dir / page_filename
 
@@ -122,7 +106,10 @@ class WorkflowOrchestrator:
                     skipped += 1
                     continue
 
-                if skip_llm:
+                if not page_text.strip():
+                    logger.warning(f"  - Page {page_num}/{total_pages} is empty, skipping LLM.")
+                    cleaned_page = page_text
+                elif skip_llm:
                     cleaned_page = page_text
                 else:
                     logger.info(f"  - Cleaning Page {page_num}/{total_pages} ({len(page_text)} chars)...")
@@ -138,15 +125,18 @@ class WorkflowOrchestrator:
                     with open(output_path, "w", encoding="utf-8") as f:
                         f.write(cleaned_page)
                     logger.info(f"  - Saved: {output_path}")
+
+                processed += 1
+                if not to_stdout:
                     self._write_progress(dest_dir, file_path.stem, page_num, total_pages, "processing", start_time)
 
             # Write final progress
-            if not to_stdout:
+            if not to_stdout and total_pages > 0:
                 self._write_progress(dest_dir, file_path.stem, total_pages, total_pages, "completed", start_time)
 
             if skipped > 0:
                 logger.info(f"Resumed: skipped {skipped} already-completed pages.")
-            logger.info(f"Success! Finished processing {total_pages} pages.")
+            logger.info(f"Success! Processed {processed} pages, {skipped} skipped.")
 
         except (OCRExecutionError, LLMConnectionError) as e:
             logger.error(f"Workflow failed for {file_path.name}: {e}")
