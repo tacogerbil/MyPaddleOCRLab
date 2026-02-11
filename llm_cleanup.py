@@ -155,6 +155,16 @@ Output rules:
                 }
             }
 
+        
+        # DIAGNOSTIC: Log the payload being sent
+        logger.info(f\"DIAGNOSTIC LLM: Sending request to {self.api_url}\")
+        logger.info(f\"DIAGNOSTIC LLM: Model: {self.model_name}\")
+        logger.info(f\"DIAGNOSTIC LLM: Payload keys: {list(payload.keys())}\")
+        if 'messages' in payload:
+            logger.info(f\"DIAGNOSTIC LLM: System prompt length: {len(payload['messages'][0]['content'])} chars\")
+            logger.info(f\"DIAGNOSTIC LLM: User content length: {len(payload['messages'][1]['content'])} chars\")
+            logger.info(f\"DIAGNOSTIC LLM: First 100 chars of system prompt: {payload['messages'][0]['content'][:100]}\")
+        
         try:
             # logger.info(f"Sending request to LLM: {self.api_url}")
             response = requests.post(self.api_url, json=payload, headers=headers, timeout=120)
