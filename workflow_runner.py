@@ -115,6 +115,14 @@ class WorkflowOrchestrator:
             output_dir.mkdir(parents=True, exist_ok=True) if output_dir else config.CLEANED_DIR.mkdir(parents=True, exist_ok=True)
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write("<!-- FILE CREATED BY PYTHON WORKFLOW_RUNNER -->\n")  # Marker to confirm Python is writing
+            
+            # DEBUG: Verify file was cleared
+            if to_stdout:
+                with open(output_path, "r", encoding="utf-8") as f:
+                    file_content = f.read()
+                    print(f"DEBUG FILE CLEAR: File size after clear: {len(file_content)} chars")
+                    print(f"DEBUG FILE CLEAR: Content: {file_content[:200]}")
+            
             logger.info(f"Streaming output to: {output_path}")
 
             for i, page_text in enumerate(pages):
