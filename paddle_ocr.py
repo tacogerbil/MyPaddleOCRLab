@@ -9,12 +9,12 @@ os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 
 # We import PaddleOCR inside the class or method to avoid hard dependency if library is missing during development/mocking
 # But for production code, it should be at top level.
+# Core dependencies
 try:
     from paddleocr import PaddleOCR, PPStructure
     import numpy as np
     from pdf2image import convert_from_path, pdfinfo_from_path
     import PIL.Image
-    import cv2
     PIL.Image.MAX_IMAGE_PIXELS = None # Disable decompression bomb check
 except ImportError:
     PaddleOCR = None
@@ -22,6 +22,11 @@ except ImportError:
     np = None
     convert_from_path = None
     PIL = None
+
+# Optional dependencies
+try:
+    import cv2
+except ImportError:
     cv2 = None
 
 from config import config
@@ -91,7 +96,7 @@ class PaddleOCRProcessor:
                 logger.error(f"Failed to initialize PaddleOCR: {e}")
                 raise OCRExecutionError(f"Initialization failed: {e}")
 
-    def _detect_horizontal_lines(self, img_array: np.ndarray) -> Dict[str, List[int]]:
+    def _detect_horizontal_lines(self, img_array: Any) -> Dict[str, List[int]]:
         """
         Detect logical header/footer separator lines using morphological operations.
         Returns Y-coordinates of significant horizontal lines at top/bottom of page.
