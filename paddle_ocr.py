@@ -11,17 +11,22 @@ os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 # But for production code, it should be at top level.
 # Core dependencies
 try:
-    from paddleocr import PaddleOCR, PPStructure
+    from paddleocr import PaddleOCR
     import numpy as np
     from pdf2image import convert_from_path, pdfinfo_from_path
     import PIL.Image
     PIL.Image.MAX_IMAGE_PIXELS = None # Disable decompression bomb check
 except ImportError:
     PaddleOCR = None
-    PPStructure = None
     np = None
     convert_from_path = None
     PIL = None
+
+# Optional Layout Analysis dependency
+try:
+    from paddleocr import PPStructure
+except ImportError:
+    PPStructure = None
 
 # Optional dependencies
 try:
