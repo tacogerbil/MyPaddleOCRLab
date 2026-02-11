@@ -78,7 +78,6 @@ class PaddleOCRProcessor:
                 cls._engine_instance = PaddleOCR(
                     use_angle_cls=config.USE_ANGLE_CLS,
                     lang=config.LANG,
-                    use_gpu=config.USE_GPU,
                     device=device_arg,
                     det_limit_side_len=config.DET_LIMIT_SIDE_LEN,
                     det_limit_type=config.DET_LIMIT_TYPE,
@@ -91,8 +90,7 @@ class PaddleOCRProcessor:
                     logger.info("Initializing PPStructure (Layout Analysis)...")
                     cls._structure_instance = PPStructure(
                         image_orientation=config.USE_ANGLE_CLS,
-                        lang=config.LANG,
-                        use_gpu=config.USE_GPU
+                        lang=config.LANG
                     )
                     logger.info("PPStructure initialized successfully.")
             except Exception as e:
