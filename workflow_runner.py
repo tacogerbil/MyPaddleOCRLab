@@ -17,11 +17,14 @@ def _shutdown(signum, frame):
     logger.info(f"Received signal {signum}, shutting down.")
     sys.exit(1)
 
-for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT, signal.SIGPIPE):
+for sig_name in ('SIGTERM', 'SIGHUP', 'SIGINT', 'SIGPIPE'):
+    sig = getattr(signal, sig_name, None)
+    if sig is None:
+        continue
     try:
         signal.signal(sig, _shutdown)
     except (OSError, ValueError):
-        pass  # SIGPIPE not available on Windows
+        pass
 
 # Configure Logging - MUST happen before any imports that use logging
 log_dir = Path("logs")
