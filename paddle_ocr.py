@@ -132,9 +132,15 @@ class PaddleOCRProcessor:
 
             # Use the markdown property which contains the extracted text
             if hasattr(page_result, 'markdown') and page_result.markdown:
-                text = page_result.markdown
+                md = page_result.markdown
+                # markdown may be a dict with a text key, or a string
+                if isinstance(md, dict):
+                    logger.debug(f"PPStructureV3 markdown keys: {list(md.keys())}")
+                    text = md.get('text', md.get('content', str(md)))
+                else:
+                    text = str(md)
                 logger.debug(f"PPStructureV3 extracted {len(text)} chars via markdown")
-                return text.strip()
+                return text.strip() if isinstance(text, str) else str(text).strip()
 
             # Fallback: use overall_ocr_res rec_texts
             if hasattr(page_result, 'overall_ocr_res'):
