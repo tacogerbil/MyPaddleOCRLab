@@ -4,6 +4,7 @@ import argparse
 import signal
 import sys
 import time
+import threading
 from pathlib import Path
 from typing import List
 from config import config
@@ -25,6 +26,20 @@ for sig_name in ('SIGTERM', 'SIGHUP', 'SIGINT', 'SIGPIPE'):
         signal.signal(sig, _shutdown)
     except (OSError, ValueError):
         pass
+
+# Watchdog: detect when parent process (SSH shell) dies.
+# On Linux, orphaned processes get reparented to PID 1.
+_INITIAL_PPID = os.getppid()
+
+def _parent_watchdog(check_interval=3):
+    while True:
+        time.sleep(check_interval)
+        if os.getppid() != _INITIAL_PPID:
+            print("Parent process died (SSH disconnected). Exiting.", file=sys.stderr)
+            os._exit(1)
+
+_watchdog = threading.Thread(target=_parent_watchdog, daemon=True)
+_watchdog.start()
 
 # Configure Logging - MUST happen before any imports that use logging
 log_dir = Path("logs")
