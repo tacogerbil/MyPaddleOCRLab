@@ -1,6 +1,7 @@
 import gc
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 
@@ -139,8 +140,13 @@ class PaddleOCRProcessor:
                     text = md.get('text', md.get('content', str(md)))
                 else:
                     text = str(md)
+                # Strip HTML image tags from markdown output
+                text = re.sub(r'<div[^>]*>\s*<img[^>]*/>\s*</div>', '', text)
+                text = re.sub(r'<img[^>]*/>', '', text)
+                text = re.sub(r'\n{3,}', '\n\n', text)  # collapse excess blank lines
+                text = text.strip()
                 logger.debug(f"PPStructureV3 extracted {len(text)} chars via markdown")
-                return text.strip() if isinstance(text, str) else str(text).strip()
+                return text
 
             # Fallback: use overall_ocr_res rec_texts
             if hasattr(page_result, 'overall_ocr_res'):
