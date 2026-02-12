@@ -4,6 +4,7 @@ paddleocr>=3.4.0
 paddlex
 numpy
 opencv-python
+paddlex[ocr]
 
 # Image/PDF Processing
 pdf2image
