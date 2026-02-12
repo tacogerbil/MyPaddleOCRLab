@@ -108,12 +108,12 @@ class PaddleOCRProcessor:
 
     def _parse_structure_v3_output(self, structure_result: Any, img_height: int) -> str:
         """
-        Parse PPStructureV3 output. Uses the .markdown property for text extraction.
+        Parse PPStructureV3 output.
 
-        PPStructureV3.predict() returns result objects with:
-        - .markdown: Extracted text in markdown format
-        - .layout_det_res: Layout boxes with .label (type) and .coordinate
-        - .overall_ocr_res: Raw OCR with .rec_texts, .dt_polys, etc.
+        PPStructureV3.predict() returns LayoutParsingResultV2 with .markdown dict:
+        - markdown_texts: str — the extracted text with inline HTML image tags
+        - markdown_images: dict — detected images as PIL objects
+        - page_index, input_path, page_continuation_flags: metadata
         """
         try:
             if not structure_result:
@@ -131,35 +131,33 @@ class PaddleOCRProcessor:
             if page_result is None:
                 return ""
 
-            # Use the markdown property which contains the extracted text
-            if hasattr(page_result, 'markdown') and page_result.markdown:
-                md = page_result.markdown
-                # markdown may be a dict with a text key, or a string
-                if isinstance(md, dict):
-                    logger.debug(f"PPStructureV3 markdown keys: {list(md.keys())}")
-                    text = md.get('text', md.get('content', str(md)))
-                else:
-                    text = str(md)
-                # Strip HTML image tags from markdown output
-                text = re.sub(r'<div[^>]*>\s*<img[^>]*/>\s*</div>', '', text)
-                text = re.sub(r'<img[^>]*/>', '', text)
-                text = re.sub(r'\n{3,}', '\n\n', text)  # collapse excess blank lines
-                text = text.strip()
-                logger.debug(f"PPStructureV3 extracted {len(text)} chars via markdown")
-                return text
-
-            # Fallback: use overall_ocr_res rec_texts
-            if hasattr(page_result, 'overall_ocr_res'):
-                ocr_res = page_result.overall_ocr_res
-                if hasattr(ocr_res, 'rec_texts') and ocr_res.rec_texts:
+            # .markdown is a dict with 'markdown_texts' as the text content
+            md = getattr(page_result, 'markdown', None)
+            if md and isinstance(md, dict):
+                text = md.get('markdown_texts', '')
+            elif md and isinstance(md, str):
+                text = md
+            else:
+                # Fallback: try overall_ocr_res
+                ocr_res = getattr(page_result, 'overall_ocr_res', None)
+                if ocr_res and hasattr(ocr_res, 'rec_texts') and ocr_res.rec_texts:
                     text = '\n'.join(ocr_res.rec_texts)
-                    logger.debug(f"PPStructureV3 extracted {len(text)} chars via rec_texts")
-                    return text.strip()
+                else:
+                    attrs = [a for a in dir(page_result) if not a.startswith('_')]
+                    logger.warning(f"PPStructureV3 result has no usable text. Attrs: {attrs}")
+                    return ""
 
-            # Debug: log what attributes are available
-            attrs = [a for a in dir(page_result) if not a.startswith('_')]
-            logger.warning(f"PPStructureV3 result has no usable text. Available attrs: {attrs}")
-            return ""
+            # Strip HTML image tags (figures detected by layout analysis)
+            text = re.sub(r'<div[^>]*>\s*<img[^>]*/>\s*</div>', '', text)
+            text = re.sub(r'<img[^>]*/>', '', text)
+            # Strip markdown image syntax ![alt](path)
+            text = re.sub(r'!\[[^\]]*\]\([^)]*\)', '', text)
+            # Collapse excess blank lines
+            text = re.sub(r'\n{3,}', '\n\n', text)
+            text = text.strip()
+
+            logger.debug(f"PPStructureV3 extracted {len(text)} chars")
+            return text
 
         except Exception as e:
             logger.error(f"Failed to parse PPStructureV3 output: {e}")

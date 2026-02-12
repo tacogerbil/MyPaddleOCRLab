@@ -96,8 +96,8 @@ class Config:
 
     @property
     def PDF_DPI(self) -> int:
-        """DPI for converting PDF pages to images. 200 is good balance; 300 is heavy."""
-        return int(os.getenv("PDF_DPI", "200"))
+        """DPI for converting PDF pages to images. 150 is sufficient for OCR; higher wastes VRAM."""
+        return int(os.getenv("PDF_DPI", "150"))
 
     # --- Advanced Layout Analysis ---
     @property
