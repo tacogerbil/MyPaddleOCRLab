@@ -107,60 +107,51 @@ class PaddleOCRProcessor:
 
     def _parse_structure_v3_output(self, structure_result: Any, img_height: int) -> str:
         """
-        Parse PPStructureV3 output and filter unwanted regions.
-        
-        PPStructureV3 returns layout regions with types like:
-        - 'text': Body text
-        - 'title': Section/story titles
-        - 'header': Page headers
-        - 'footer': Page footers  
-        - 'figure': Images
-        - 'figure_caption': Image captions
-        - 'table': Tables
-        
-        We want to keep: text, title, table
-        We want to remove: header, footer, figure, figure_caption
+        Parse PPStructureV3 output. Uses the .markdown property for text extraction.
+
+        PPStructureV3.predict() returns result objects with:
+        - .markdown: Extracted text in markdown format
+        - .layout_det_res: Layout boxes with .label (type) and .coordinate
+        - .overall_ocr_res: Raw OCR with .rec_texts, .dt_polys, etc.
         """
         try:
-            # PPStructureV3.predict() returns a list of page results
-            # Each page result has layout_det_res and overall_ocr_res
             if not structure_result:
                 return ""
-            
-            # Get the first (and only) page result
-            page_result = structure_result[0] if isinstance(structure_result, list) else structure_result
-            
-            # Extract layout detection results
-            layout_regions = page_result.layout_det_res if hasattr(page_result, 'layout_det_res') else []
-            
-            # Filter and extract text from valid regions
-            valid_text_blocks = []
-            
-            for region in layout_regions:
-                region_type = region.get('type', '').lower()
-                
-                # Skip unwanted region types
-                if region_type in ['header', 'footer', 'figure', 'figure_caption']:
-                    logger.debug(f"Filtering out {region_type} region")
-                    continue
-                
-                # Extract text from this region
-                region_text = region.get('text', '')
-                if region_text and region_text.strip():
-                    valid_text_blocks.append(region_text.strip())
-            
-            # Join all valid text blocks
-            return '\n\n'.join(valid_text_blocks)
-            
+
+            # predict() returns a generator/list of page results
+            page_result = None
+            if hasattr(structure_result, '__iter__'):
+                for item in structure_result:
+                    page_result = item
+                    break
+            else:
+                page_result = structure_result
+
+            if page_result is None:
+                return ""
+
+            # Use the markdown property which contains the extracted text
+            if hasattr(page_result, 'markdown') and page_result.markdown:
+                text = page_result.markdown
+                logger.debug(f"PPStructureV3 extracted {len(text)} chars via markdown")
+                return text.strip()
+
+            # Fallback: use overall_ocr_res rec_texts
+            if hasattr(page_result, 'overall_ocr_res'):
+                ocr_res = page_result.overall_ocr_res
+                if hasattr(ocr_res, 'rec_texts') and ocr_res.rec_texts:
+                    text = '\n'.join(ocr_res.rec_texts)
+                    logger.debug(f"PPStructureV3 extracted {len(text)} chars via rec_texts")
+                    return text.strip()
+
+            # Debug: log what attributes are available
+            attrs = [a for a in dir(page_result) if not a.startswith('_')]
+            logger.warning(f"PPStructureV3 result has no usable text. Available attrs: {attrs}")
+            return ""
+
         except Exception as e:
             logger.error(f"Failed to parse PPStructureV3 output: {e}")
-            # Fallback: try to extract any text we can
-            try:
-                if hasattr(structure_result, 'overall_ocr_res'):
-                    return str(structure_result.overall_ocr_res)
-                return str(structure_result)
-            except:
-                return ""
+            raise
 
     def process_document(self, file_path: Path) -> Dict[str, Any]:
         """
@@ -246,7 +237,7 @@ class PaddleOCRProcessor:
         if not file_path.exists():
             raise FileNotFoundError(f"Input file not found: {file_path}")
 
-        file_path = file_path.resolve()
+        file_path = Path(os.path.abspath(file_path))
         logger.info(f"Processing file: {file_path}")
         is_pdf = file_path.suffix.lower() == '.pdf'
 
